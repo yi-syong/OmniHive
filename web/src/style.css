@@ -1,0 +1,128 @@
+/* OmniHive Dashboard - Global Styles */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --oh-bg-primary: #0f0f23;
+  --oh-bg-secondary: #1a1a2e;
+  --oh-bg-card: #16213e;
+  --oh-bg-card-hover: #1c2a4a;
+  --oh-accent: #FF9800;
+  --oh-accent-glow: rgba(255, 152, 0, 0.3);
+  --oh-text-primary: #e0e0e0;
+  --oh-text-secondary: #9e9e9e;
+  --oh-border: rgba(255, 255, 255, 0.08);
+  --oh-success: #4CAF50;
+  --oh-warning: #FFC107;
+  --oh-danger: #F44336;
+  --oh-info: #2196F3;
+  --oh-charging: #26A69A;
+  --oh-radius: 12px;
+  --oh-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--oh-bg-primary);
+  color: var(--oh-text-primary);
+  overflow: hidden;
+  height: 100vh;
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--oh-bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 152, 0, 0.4);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 152, 0, 0.6);
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: rgba(22, 33, 62, 0.8);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius);
+}
+
+/* Status colors */
+.status-online { color: var(--oh-success); }
+.status-charging { color: var(--oh-charging); }
+.status-error { color: var(--oh-danger); }
+.status-offline { color: var(--oh-text-secondary); }
+.status-paused { color: var(--oh-warning); }
+
+/* Mono font for data values */
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+}
+
+/* Pulse animation for live indicators */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Glow effect */
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 5px var(--oh-accent-glow); }
+  50% { box-shadow: 0 0 15px var(--oh-accent-glow), 0 0 30px rgba(255, 152, 0, 0.1); }
+}
+
+.glow {
+  animation: glow 3s ease-in-out infinite;
+}
+
+/* Leaflet map overrides */
+.leaflet-container {
+  background: var(--oh-bg-primary) !important;
+  font-family: 'Inter', sans-serif !important;
+}
+
+.leaflet-control-zoom a {
+  background: var(--oh-bg-card) !important;
+  color: var(--oh-text-primary) !important;
+  border-color: var(--oh-border) !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background: var(--oh-bg-card-hover) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: var(--oh-bg-card) !important;
+  color: var(--oh-text-primary) !important;
+  border-radius: var(--oh-radius) !important;
+  border: 1px solid var(--oh-border);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--oh-bg-card) !important;
+}

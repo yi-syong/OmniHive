@@ -1,0 +1,43 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ../configs/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -i healthcheck -W 3 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  master:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.master
+    ports:
+      - "8080:8080"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - GIN_MODE=release
+
+  simulator:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.simulator
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      master:
+        condition: service_started
+
+  web:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.web
+    ports:
+      - "3000:80"
+    depends_on:
+      - master
