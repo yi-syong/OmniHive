@@ -1,0 +1,7 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+mqtt:
+  broker: "tcp://mosquitto:1883"
+  client_id: "omnihive-master"

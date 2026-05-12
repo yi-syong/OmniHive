@@ -1,0 +1,36 @@
+mqtt:
+  broker: "tcp://mosquitto:1883"
+  client_id_prefix: "omnihive-sim"
+
+factory:
+  width: 200
+  height: 100
+  map_id: "factory-default"
+
+vehicles:
+  count: 10
+  manufacturer: "omnihive-sim"
+  speed: 1.5
+  battery_capacity: 100
+  battery_drain: 0.01
+  low_battery_threshold: 15
+  safety_distance: 2.0
+  state_interval: 1s
+  visualization_interval: 100ms
+
+charging:
+  charge_rate: 0.5
+  full_charge: 95
+  stations:
+    - name: "CS-01"
+      position: { x: 10, y: 10 }
+    - name: "CS-02"
+      position: { x: 190, y: 90 }
+
+paths:
+  - name: "loop-A"
+    points: [[10,10], [10,50], [90,50], [90,10]]
+  - name: "loop-B"
+    points: [[110,20], [110,80], [190,80], [190,20]]
+  - name: "cross-C"
+    points: [[50,10], [50,90], [150,90], [150,10]]

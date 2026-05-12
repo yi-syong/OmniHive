@@ -1,0 +1,39 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+
+# Go
+*.test
+*.out
+go.work
+go.work.sum
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Web frontend
+web/node_modules/
+web/dist/
+web/.quasar/
+
+# Docker
+*.log
+
+# Configs with secrets
+configs/*.local.yaml
