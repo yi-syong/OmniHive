@@ -1,6 +1,7 @@
 services:
   mosquitto:
     image: eclipse-mosquitto:2
+    container_name: omnihive-broker
     ports:
       - "1883:1883"
     volumes:
@@ -15,6 +16,7 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.master
+    container_name: omnihive-master
     ports:
       - "8080:8080"
     depends_on:
@@ -27,6 +29,7 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.simulator
+    container_name: omnihive-simulator
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -37,6 +40,7 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.web
+    container_name: omnihive-web
     ports:
       - "3000:80"
     depends_on:

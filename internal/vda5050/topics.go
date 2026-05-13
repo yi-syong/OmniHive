@@ -1,6 +1,9 @@
 package vda5050
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	// InterfaceName is the base topic prefix for OmniHive.
@@ -63,10 +66,9 @@ func SubscribeAllConnections() string {
 // ParseTopic extracts manufacturer, serialNumber, and topic type from a topic string.
 // Expected format: omnihive/v2/{manufacturer}/{serialNumber}/{topicType}
 func ParseTopic(topic string) (manufacturer, serialNumber, topicType string, err error) {
-	var iface, version string
-	n, scanErr := fmt.Sscanf(topic, "%[^/]/%[^/]/%[^/]/%[^/]/%s", &iface, &version, &manufacturer, &serialNumber, &topicType)
-	if scanErr != nil || n != 5 {
-		return "", "", "", fmt.Errorf("invalid topic format: %s", topic)
+	parts := strings.Split(topic, "/")
+	if len(parts) != 5 {
+		return "", "", "", fmt.Errorf("invalid topic format (expected 5 parts, got %d): %s", len(parts), topic)
 	}
-	return manufacturer, serialNumber, topicType, nil
+	return parts[2], parts[3], parts[4], nil
 }

@@ -51,20 +51,26 @@ function createChargingIcon() {
 function initMap() {
   map = L.map(mapContainer.value, {
     crs: L.CRS.Simple,
-    minZoom: -2,
-    maxZoom: 4,
+    minZoom: -3,
+    maxZoom: 5,
     zoomControl: true,
     attributionControl: false,
   })
 
-  // Factory floor bounds: 200m x 100m
-  const bounds = [[0, 0], [100, 200]]
+  // Factory floor: 200m wide x 100m tall
+  // In CRS.Simple: [y, x] = [lat, lng]
+  // Set initial view to center of factory
+  map.setView([50, 100], 0)
 
   // Draw grid background
-  drawGrid(bounds)
+  const factoryWidth = 200
+  const factoryHeight = 100
+  drawGrid(factoryWidth, factoryHeight)
 
   // Add factory boundary
-  L.rectangle(bounds, {
+  const corner1 = L.latLng(0, 0)
+  const corner2 = L.latLng(factoryHeight, factoryWidth)
+  L.rectangle([corner1, corner2], {
     color: 'rgba(255, 152, 0, 0.3)',
     weight: 2,
     fill: false,
@@ -87,36 +93,30 @@ function initMap() {
       })
       .addTo(map)
   })
-
-  // Fit map to factory bounds with padding
-  map.fitBounds(bounds, { padding: [30, 30] })
-
-  // Add scale
-  L.control.scale({ imperial: false, position: 'bottomright' }).addTo(map)
 }
 
-function drawGrid(bounds) {
+function drawGrid(width, height) {
   const gridGroup = L.layerGroup().addTo(map)
   const step = 10 // 10m grid
 
   // Vertical lines
-  for (let x = 0; x <= bounds[1][1]; x += step) {
-    L.polyline([[bounds[0][0], x], [bounds[1][0], x]], {
+  for (let x = 0; x <= width; x += step) {
+    L.polyline([[0, x], [height, x]], {
       color: 'rgba(255, 255, 255, 0.06)',
       weight: 1,
     }).addTo(gridGroup)
   }
 
   // Horizontal lines
-  for (let y = 0; y <= bounds[1][0]; y += step) {
-    L.polyline([[y, bounds[0][1]], [y, bounds[1][1]]], {
+  for (let y = 0; y <= height; y += step) {
+    L.polyline([[y, 0], [y, width]], {
       color: 'rgba(255, 255, 255, 0.06)',
       weight: 1,
     }).addTo(gridGroup)
   }
 
   // Axis labels
-  for (let x = 0; x <= bounds[1][1]; x += 50) {
+  for (let x = 0; x <= width; x += 50) {
     L.marker([-3, x], {
       icon: L.divIcon({
         html: `<span style="color: rgba(255,255,255,0.3); font-size: 10px; font-family: 'JetBrains Mono', monospace;">${x}m</span>`,
@@ -127,7 +127,7 @@ function drawGrid(bounds) {
     }).addTo(gridGroup)
   }
 
-  for (let y = 0; y <= bounds[1][0]; y += 50) {
+  for (let y = 0; y <= height; y += 50) {
     L.marker([y, -5], {
       icon: L.divIcon({
         html: `<span style="color: rgba(255,255,255,0.3); font-size: 10px; font-family: 'JetBrains Mono', monospace;">${y}m</span>`,
