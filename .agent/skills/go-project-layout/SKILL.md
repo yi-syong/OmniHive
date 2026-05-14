@@ -11,7 +11,6 @@ This project follows the Standard Go Project Layout.
 
 - `cmd/`: Main applications for this project. The directory name for each application should match the name of the executable you want to have (e.g., `cmd/master/main.go`).
 - `internal/`: Private application and library code. This is code that you don't want others importing in their applications or libraries.
-- `pkg/`: Library code that's ok to use by external applications. (Currently unused in Phase 1)
 - `web/`: Frontend specific components (Vue3, Quasar).
 - `configs/`: Configuration file templates or default configs.
 - `deployments/`: IaaS, PaaS, system and container orchestration deployment configurations and templates (Dockerfiles, docker-compose).
