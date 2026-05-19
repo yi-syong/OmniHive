@@ -6,8 +6,10 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import L from 'leaflet'
 import { useVehicleStore } from '../stores/vehicleStore'
+import { useEditorStore } from '../stores/editorStore'
 
 const store = useVehicleStore()
+const editorStore = useEditorStore()
 const mapContainer = ref(null)
 
 let map = null
@@ -48,7 +50,12 @@ function createChargingIcon() {
   })
 }
 
-function initMap() {
+let imageOverlay = null
+
+let gridGroup = null
+let boundaryLayer = null
+
+async function initMap() {
   map = L.map(mapContainer.value, {
     crs: L.CRS.Simple,
     minZoom: -3,
@@ -56,26 +63,6 @@ function initMap() {
     zoomControl: true,
     attributionControl: false,
   })
-
-  // Factory floor: 200m wide x 100m tall
-  // In CRS.Simple: [y, x] = [lat, lng]
-  // Set initial view to center of factory
-  map.setView([50, 100], 0)
-
-  // Draw grid background
-  const factoryWidth = 200
-  const factoryHeight = 100
-  drawGrid(factoryWidth, factoryHeight)
-
-  // Add factory boundary
-  const corner1 = L.latLng(0, 0)
-  const corner2 = L.latLng(factoryHeight, factoryWidth)
-  L.rectangle([corner1, corner2], {
-    color: 'rgba(255, 152, 0, 0.3)',
-    weight: 2,
-    fill: false,
-    dashArray: '8, 4',
-  }).addTo(map)
 
   // Add charging station markers
   const chargingStations = [
@@ -93,10 +80,80 @@ function initMap() {
       })
       .addTo(map)
   })
+
+  await editorStore.fetchMaps()
+  
+  // Initialize layers
+  gridGroup = L.layerGroup().addTo(map)
+  
+  if (store.selectedMapName !== 'all') {
+    const activeMap = editorStore.maps.find(m => m.name === store.selectedMapName)
+    if (activeMap) {
+      await loadMapImage(activeMap)
+    } else {
+      loadDefaultView()
+    }
+  } else {
+    loadDefaultView()
+  }
+}
+
+function loadDefaultView() {
+  if (imageOverlay) {
+    map.removeLayer(imageOverlay)
+    imageOverlay = null
+  }
+  map.setView([50, 100], 0)
+  
+  // Clear any existing grid/boundary
+  gridGroup.clearLayers()
+  if (boundaryLayer) map.removeLayer(boundaryLayer)
+
+  drawGrid(200, 100)
+  
+  const corner1 = L.latLng(0, 0)
+  const corner2 = L.latLng(100, 200)
+  boundaryLayer = L.rectangle([corner1, corner2], {
+    color: 'rgba(255, 152, 0, 0.3)',
+    weight: 2,
+    fill: false,
+    dashArray: '8, 4',
+  }).addTo(map)
+}
+
+const loadMapImage = (mapData) => {
+  return new Promise((resolve) => {
+    if (!mapData || !mapData.imageUrl) {
+      resolve()
+      return
+    }
+
+    // Clear grid and boundary for custom map
+    gridGroup.clearLayers()
+    if (boundaryLayer) {
+      map.removeLayer(boundaryLayer)
+      boundaryLayer = null
+    }
+
+    const img = new Image()
+    img.onload = () => {
+      const w = img.width
+      const h = img.height
+      const bounds = [[0, 0], [h, w]]
+
+      if (imageOverlay) map.removeLayer(imageOverlay)
+      imageOverlay = L.imageOverlay(mapData.imageUrl, bounds).addTo(map)
+      imageOverlay.bringToBack()
+      
+      map.fitBounds(bounds)
+      resolve()
+    }
+    img.onerror = () => resolve()
+    img.src = mapData.imageUrl
+  })
 }
 
 function drawGrid(width, height) {
-  const gridGroup = L.layerGroup().addTo(map)
   const step = 10 // 10m grid
 
   // Vertical lines
@@ -140,7 +197,12 @@ function drawGrid(width, height) {
 }
 
 function updateMarkers() {
-  const vehicleList = store.vehicleList
+  let vehicleList = store.vehicleList
+
+  // Filter vehicles by selected map
+  if (store.selectedMapName !== 'all') {
+    vehicleList = vehicleList.filter(v => v.mapId === store.selectedMapName)
+  }
 
   vehicleList.forEach(vehicle => {
     const key = vehicle.serialNumber
@@ -203,6 +265,30 @@ onUnmounted(() => {
 // Watch selected vehicle changes to fly to it
 watch(() => store.selectedVehicleId, (newId) => {
   if (newId) flyToVehicle(newId)
+})
+
+// Watch selected map changes to load image
+watch(() => store.selectedMapName, async (newMapName) => {
+  if (newMapName === 'all') {
+    loadDefaultView()
+  } else {
+    await editorStore.fetchMaps()
+    const activeMap = editorStore.maps.find(m => m.name === newMapName)
+    if (activeMap) {
+      await loadMapImage(activeMap)
+    } else {
+      // Unrecognized map, fallback to default grid
+      loadDefaultView()
+    }
+  }
+  
+  // Clear all markers from map first so off-map vehicles disappear instantly
+  for (const [key, marker] of markers) {
+    map.removeLayer(marker)
+  }
+  markers.clear()
+  
+  updateMarkers()
 })
 
 defineExpose({ flyToVehicle })

@@ -3,7 +3,12 @@
     <div class="bar-left">
       <span class="logo">🐝</span>
       <span class="brand-name">OmniHive</span>
-      <q-badge color="orange-8" class="version-badge">Phase 1</q-badge>
+      <q-badge color="orange-8" class="version-badge">Phase 2</q-badge>
+    </div>
+
+    <div class="nav-links">
+      <q-btn flat no-caps label="Dashboard" icon="dashboard" to="/dashboard" />
+      <q-btn flat no-caps label="Editor" icon="map" to="/editor" />
     </div>
 
     <div class="bar-center">
@@ -95,6 +100,12 @@ const connectionLabel = computed(() => {
 .version-badge {
   font-size: 10px;
   padding: 2px 6px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 8px;
+  margin-left: 20px;
 }
 
 .bar-center {

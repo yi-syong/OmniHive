@@ -37,3 +37,6 @@ web/.quasar/
 
 # Configs with secrets
 configs/*.local.yaml
+
+# Uploaded images
+**/uploads/

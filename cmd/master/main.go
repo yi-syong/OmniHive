@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/yi-syong/OmniHive/internal/master/api"
 	"github.com/yi-syong/OmniHive/internal/master/config"
+	"github.com/yi-syong/OmniHive/internal/master/db"
 	mqtthandler "github.com/yi-syong/OmniHive/internal/master/mqtt"
 	"github.com/yi-syong/OmniHive/internal/master/store"
 	"github.com/yi-syong/OmniHive/internal/master/websocket"
@@ -29,6 +30,10 @@ func main() {
 	}
 
 	log.Printf("Config loaded: server %s, MQTT: %s", cfg.Server.Addr(), cfg.MQTT.Broker)
+
+	if err := db.Init(cfg.Database); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
 
 	vehicleStore := store.New(30 * time.Second)
 	wsHub := websocket.NewHub()

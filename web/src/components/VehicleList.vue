@@ -7,6 +7,22 @@
       </q-badge>
     </div>
 
+    <!-- Map selector -->
+    <div class="map-selector-container q-px-md q-pt-md">
+      <q-select
+        v-model="store.selectedMapName"
+        :options="mapOptions"
+        emit-value
+        map-options
+        dark
+        dense
+        outlined
+        label="Select Map / Floor"
+        class="full-width"
+        color="orange"
+      />
+    </div>
+
     <!-- Filter tabs -->
     <div class="filter-tabs">
       <q-btn-toggle
@@ -63,11 +79,25 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useVehicleStore } from '../stores/vehicleStore'
+import { useEditorStore } from '../stores/editorStore'
 
 const store = useVehicleStore()
+const editorStore = useEditorStore()
 const filter = ref('all')
+
+onMounted(async () => {
+  await editorStore.fetchMaps()
+})
+
+const mapOptions = computed(() => {
+  const options = [{ label: 'All Maps (Default Grid)', value: 'all' }]
+  editorStore.maps.forEach(m => {
+    options.push({ label: m.name, value: m.name })
+  })
+  return options
+})
 
 const filterOptions = [
   { label: 'All', value: 'all' },
@@ -78,8 +108,16 @@ const filterOptions = [
 ]
 
 const filteredVehicles = computed(() => {
-  if (filter.value === 'all') return store.vehicleList
-  return store.vehicleList.filter(v => {
+  let list = store.vehicleList
+  
+  // 1. Filter by selected map
+  if (store.selectedMapName !== 'all') {
+    list = list.filter(v => v.mapId === store.selectedMapName)
+  }
+
+  // 2. Filter by status tabs
+  if (filter.value === 'all') return list
+  return list.filter(v => {
     const status = store.getStatus(v)
     if (filter.value === 'offline') return status === 'offline'
     return status === filter.value

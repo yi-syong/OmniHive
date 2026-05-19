@@ -48,7 +48,31 @@ func (h *Handler) SetupRoutes(r *gin.Engine) {
 		{
 			system.GET("/status", h.getSystemStatus)
 		}
+
+		// Map endpoints
+		maps := v1.Group("/maps")
+		{
+			maps.GET("", h.getMaps)
+			maps.POST("", h.uploadMap)
+			maps.PUT("/:id/calibrate", h.calibrateMap)
+			maps.DELETE("/:id", h.deleteMap)
+		}
+
+		// Network endpoints
+		network := v1.Group("/network")
+		{
+			network.GET("", h.getNetwork)
+			network.POST("/nodes", h.createNode)
+			network.PUT("/nodes/:id", h.updateNode)
+			network.DELETE("/nodes/:id", h.deleteNode)
+			network.POST("/edges", h.createEdge)
+			network.PUT("/edges/:id", h.updateEdge)
+			network.DELETE("/edges/:id", h.deleteEdge)
+		}
 	}
+
+	// Serve uploaded maps statically
+	r.Static("/uploads", "./uploads")
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {

@@ -5,6 +5,7 @@ export const useVehicleStore = defineStore('vehicles', () => {
   // State
   const vehicles = ref(new Map())
   const selectedVehicleId = ref(null)
+  const selectedMapName = ref('all')
   const connectionStatus = ref('disconnected') // disconnected, connecting, connected
 
   // Getters
@@ -55,6 +56,7 @@ export const useVehicleStore = defineStore('vehicles', () => {
       x: state.agvPosition?.x ?? 0,
       y: state.agvPosition?.y ?? 0,
       theta: state.agvPosition?.theta ?? 0,
+      mapId: state.agvPosition?.mapId ?? 'factory-default',
       vx: state.velocity?.vx ?? 0,
       vy: state.velocity?.vy ?? 0,
       errors: state.errors || [],
@@ -74,6 +76,7 @@ export const useVehicleStore = defineStore('vehicles', () => {
     existing.x = viz.agvPosition?.x ?? existing.x
     existing.y = viz.agvPosition?.y ?? existing.y
     existing.theta = viz.agvPosition?.theta ?? existing.theta
+    existing.mapId = viz.agvPosition?.mapId ?? existing.mapId
     existing.vx = viz.velocity?.vx ?? existing.vx
     existing.vy = viz.velocity?.vy ?? existing.vy
     existing.lastUpdate = Date.now()
@@ -98,6 +101,10 @@ export const useVehicleStore = defineStore('vehicles', () => {
 
   function selectVehicle(serialNumber) {
     selectedVehicleId.value = serialNumber
+    const v = vehicles.value.get(serialNumber)
+    if (v && v.mapId) {
+      selectedMapName.value = v.mapId
+    }
   }
 
   function clearSelection() {
@@ -137,6 +144,7 @@ export const useVehicleStore = defineStore('vehicles', () => {
   return {
     vehicles,
     selectedVehicleId,
+    selectedMapName,
     connectionStatus,
     vehicleList,
     selectedVehicle,

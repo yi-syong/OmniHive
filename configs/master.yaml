@@ -5,3 +5,11 @@ server:
 mqtt:
   broker: "tcp://mosquitto:1883"
   client_id: "omnihive-master"
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "omnihive"
+  password: "omnihive_password"
+  dbname: "omnihive_db"
+  sslmode: "disable"
