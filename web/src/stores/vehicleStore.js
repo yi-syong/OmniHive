@@ -102,7 +102,7 @@ export const useVehicleStore = defineStore('vehicles', () => {
   function selectVehicle(serialNumber) {
     selectedVehicleId.value = serialNumber
     const v = vehicles.value.get(serialNumber)
-    if (v && v.mapId) {
+    if (v && v.mapId && v.mapId !== selectedMapName.value) {
       selectedMapName.value = v.mapId
     }
   }

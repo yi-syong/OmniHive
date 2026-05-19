@@ -17,7 +17,9 @@ const markers = new Map()
 
 // Vehicle icon SVG factory
 function createVehicleIcon(color, theta = 0) {
-  const rotation = (theta * 180 / Math.PI)
+  // theta: math radians (0=right, π/2=up). SVG arrow points up by default.
+  // Convert so theta=0 → rotate 90° CW (right), theta=π/2 → rotate 0° (up)
+  const rotation = 90 - (theta * 180 / Math.PI)
   const svg = `
     <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
       <g transform="rotate(${rotation}, 16, 16)">
@@ -58,10 +60,13 @@ let boundaryLayer = null
 async function initMap() {
   map = L.map(mapContainer.value, {
     crs: L.CRS.Simple,
-    minZoom: -3,
-    maxZoom: 5,
+    minZoom: -2,
+    maxZoom: 4,
     zoomControl: true,
     attributionControl: false,
+    zoomSnap: 0.25,
+    zoomDelta: 0.5,
+    wheelPxPerZoomLevel: 120,
   })
 
   // Add charging station markers
