@@ -111,6 +111,15 @@ type Order struct {
 	Edges []Edge `json:"edges"`
 }
 
+// --- InstantActions Message ---
+
+// InstantActions represents immediate actions sent from Master Control to the AGV.
+// Topic: <interface>/v2/<manufacturer>/<serialNumber>/instantActions
+type InstantActions struct {
+	Header
+	Actions []Action `json:"actions"`
+}
+
 // --- Sub-types ---
 
 // AGVPosition represents the position of the AGV on the map.
@@ -229,10 +238,17 @@ type Edge struct {
 
 // Action represents an action to be performed (Phase 3).
 type Action struct {
-	ActionID          string `json:"actionId"`
-	ActionType        string `json:"actionType"`
-	ActionDescription string `json:"actionDescription,omitempty"`
-	BlockingType      string `json:"blockingType"`
+	ActionID          string            `json:"actionId"`
+	ActionType        string            `json:"actionType"`
+	ActionDescription string            `json:"actionDescription,omitempty"`
+	BlockingType      string            `json:"blockingType"`
+	ActionParameters  []ActionParameter `json:"actionParameters,omitempty"`
+}
+
+// ActionParameter contains key-value parameters for an action.
+type ActionParameter struct {
+	Key   string      `json:"key"`
+	Value interface{} `json:"value"` // interface{} because VDA5050 specifies value can be string, float, bool, or array. We'll use interface{} to cover these.
 }
 
 // --- Enums ---

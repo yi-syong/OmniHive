@@ -6,6 +6,7 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/yi-syong/OmniHive/internal/master/db"
 	"github.com/yi-syong/OmniHive/internal/master/store"
 	"github.com/yi-syong/OmniHive/internal/master/websocket"
 	"github.com/yi-syong/OmniHive/internal/vda5050"
@@ -99,6 +100,11 @@ func (h *Handler) handleState(payload []byte) {
 
 	h.store.UpdateState(&state)
 
+	if state.AGVPosition != nil {
+		// Record trajectory (spatial filtering is handled inside)
+		db.RecordTrajectory(state.SerialNumber, state.AGVPosition.X, state.AGVPosition.Y, state.AGVPosition.Theta, state.AGVPosition.MapID)
+	}
+
 	// Broadcast to WebSocket clients
 	h.hub.Broadcast(websocket.Message{
 		Type:    "state",
@@ -143,6 +149,11 @@ func (h *Handler) handleConnection(payload []byte) {
 // Close disconnects from the MQTT broker.
 func (h *Handler) Close() {
 	h.client.Disconnect(1000)
+}
+
+// GetClient returns the underlying MQTT client.
+func (h *Handler) GetClient() mqtt.Client {
+	return h.client
 }
 
 // StartTimeoutChecker periodically checks for timed-out vehicle connections.

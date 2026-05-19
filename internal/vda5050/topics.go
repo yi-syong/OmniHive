@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	// InterfaceName is the base topic prefix for OmniHive.
-	InterfaceName = "omnihive"
+	// InterfaceName is the base topic prefix for VDA5050 (usually uagv).
+	InterfaceName = "uagv"
 	// TopicVersion is the protocol version used in topic paths.
 	TopicVersion = "v2"
 )
@@ -47,6 +47,11 @@ func OrderTopic(manufacturer, serialNumber string) string {
 	return fmt.Sprintf("%s/%s", TopicBase(manufacturer, serialNumber), TopicOrder)
 }
 
+// InstantActionTopic returns the full instant actions topic for an AGV.
+func InstantActionTopic(manufacturer, serialNumber string) string {
+	return fmt.Sprintf("%s/%s", TopicBase(manufacturer, serialNumber), TopicInstantActions)
+}
+
 // SubscribeAllStates returns the wildcard topic to subscribe to all AGV states.
 // Format: omnihive/v2/+/+/state
 func SubscribeAllStates() string {
@@ -61,6 +66,16 @@ func SubscribeAllVisualizations() string {
 // SubscribeAllConnections returns the wildcard topic for all AGV connections.
 func SubscribeAllConnections() string {
 	return fmt.Sprintf("%s/%s/+/+/%s", InterfaceName, TopicVersion, TopicConnection)
+}
+
+// SubscribeAllOrders returns the wildcard topic for all AGV orders.
+func SubscribeAllOrders() string {
+	return fmt.Sprintf("%s/%s/+/+/%s", InterfaceName, TopicVersion, TopicOrder)
+}
+
+// SubscribeAllInstantActions returns the wildcard topic for all AGV instant actions.
+func SubscribeAllInstantActions() string {
+	return fmt.Sprintf("%s/%s/+/+/%s", InterfaceName, TopicVersion, TopicInstantActions)
 }
 
 // ParseTopic extracts manufacturer, serialNumber, and topic type from a topic string.

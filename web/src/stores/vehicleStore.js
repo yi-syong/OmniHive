@@ -7,6 +7,7 @@ export const useVehicleStore = defineStore('vehicles', () => {
   const selectedVehicleId = ref(null)
   const selectedMapName = ref('all')
   const connectionStatus = ref('disconnected') // disconnected, connecting, connected
+  const dashboardMode = ref('monitoring') // monitoring, dispatch
 
   // Getters
   const vehicleList = computed(() => {
@@ -57,10 +58,14 @@ export const useVehicleStore = defineStore('vehicles', () => {
       y: state.agvPosition?.y ?? 0,
       theta: state.agvPosition?.theta ?? 0,
       mapId: state.agvPosition?.mapId ?? 'factory-default',
+      positionInitialized: state.agvPosition?.positionInitialized ?? false,
       vx: state.velocity?.vx ?? 0,
       vy: state.velocity?.vy ?? 0,
       errors: state.errors || [],
       errorCount: (state.errors || []).length,
+      currentOrderId: state.orderId || '',
+      nodeStates: state.nodeStates || [],
+      edgeStates: state.edgeStates || [],
       lastUpdate: Date.now(),
     })
 
@@ -146,6 +151,7 @@ export const useVehicleStore = defineStore('vehicles', () => {
     selectedVehicleId,
     selectedMapName,
     connectionStatus,
+    dashboardMode,
     vehicleList,
     selectedVehicle,
     onlineCount,

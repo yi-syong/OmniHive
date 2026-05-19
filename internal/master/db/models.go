@@ -52,3 +52,14 @@ type Edge struct {
 	MaxSpeed    float64 `json:"maxSpeed"` // e.g. 1.5 m/s
 	Direction   string  `gorm:"default:'bidirectional'" json:"direction"` // 'bidirectional', 'unidirectional'
 }
+
+// VehicleTrajectory represents a historical position point of a vehicle.
+type VehicleTrajectory struct {
+	ID           uint      `gorm:"primarykey" json:"id"`
+	SerialNumber string    `gorm:"index;not null" json:"serialNumber"`
+	X            float64   `gorm:"not null" json:"x"`
+	Y            float64   `gorm:"not null" json:"y"`
+	Theta        float64   `json:"theta"`
+	MapID        string    `gorm:"index;not null" json:"mapId"`
+	CreatedAt    time.Time `gorm:"index" json:"createdAt"`
+}

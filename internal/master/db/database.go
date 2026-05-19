@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/yi-syong/OmniHive/internal/master/config"
 	"gorm.io/driver/postgres"
@@ -24,9 +25,12 @@ func Init(cfg config.DatabaseConfig) error {
 
 	// Auto Migrate the schema
 	log.Println("Auto-migrating database models...")
-	if err := DB.AutoMigrate(&Map{}, &Node{}, &Edge{}); err != nil {
+	if err := DB.AutoMigrate(&Map{}, &Node{}, &Edge{}, &VehicleTrajectory{}); err != nil {
 		return fmt.Errorf("failed to auto-migrate database: %w", err)
 	}
+
+	// Start cleanup routine for old trajectory points (24 hour retention)
+	StartTrajectoryCleanupRoutine(24 * time.Hour)
 
 	log.Println("Database initialization complete.")
 	return nil

@@ -19,9 +19,50 @@
         <span class="operating-mode mono">{{ vehicle.operatingMode || 'N/A' }}</span>
       </div>
 
+      <!-- Actions -->
+      <div class="detail-section" v-if="store.dashboardMode === 'monitoring'">
+        <div class="action-buttons">
+          <button class="btn-action btn-pause" v-if="!vehicle.paused" @click="sendAction('startPause')" :disabled="isSending">Pause</button>
+          <button class="btn-action btn-resume" v-else @click="sendAction('stopPause')" :disabled="isSending">Resume</button>
+          <button class="btn-action btn-cancel" @click="sendAction('cancelOrder')" :disabled="isSending || !vehicle.currentOrderId">Cancel Order</button>
+        </div>
+      </div>
+
+      <!-- Order Progress -->
+      <div class="detail-section" v-if="vehicle.currentOrderId">
+        <div class="section-title">📋 Current Order</div>
+        <div class="order-info">
+          <div class="order-id mono">{{ vehicle.currentOrderId }}</div>
+          <div class="order-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: orderProgressPercent + '%' }"></div>
+            </div>
+            <div class="progress-text">{{ completedNodes }} / {{ totalNodes }} Nodes</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Position -->
       <div class="detail-section">
-        <div class="section-title">📍 Position</div>
+        <div class="section-title">
+          📍 Position
+        </div>
+        <div class="move-vehicle-row" v-if="store.dashboardMode === 'monitoring'">
+          <q-select
+            v-model="targetMap"
+            :options="mapOptions"
+            emit-value
+            map-options
+            dense
+            outlined
+            dark
+            class="move-map-select"
+            label="Map"
+          />
+          <button class="btn-init-pos" @click="initPosition" :disabled="!targetMap">
+            Move Here
+          </button>
+        </div>
         <div class="data-grid">
           <div class="data-item">
             <span class="data-label">X</span>
@@ -92,12 +133,25 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useVehicleStore } from '../stores/vehicleStore'
+import { useEditorStore } from '../stores/editorStore'
+import { useOrderApi } from '../composables/useOrderApi'
 
 const store = useVehicleStore()
+const editorStore = useEditorStore()
+const { isSending, sendAction: apiSendAction } = useOrderApi()
 
 const vehicle = computed(() => store.selectedVehicle)
+const targetMap = ref('')
+
+onMounted(async () => {
+  await editorStore.fetchMaps()
+})
+
+const mapOptions = computed(() => {
+  return editorStore.maps.map(m => ({ label: m.name, value: m.name }))
+})
 
 const speed = computed(() => {
   if (!vehicle.value) return 0
@@ -112,6 +166,34 @@ const batteryColor = computed(() => {
   if (charge > 30) return 'warning'
   return 'negative'
 })
+
+// Order Progress
+const totalNodes = computed(() => vehicle.value?.nodeStates?.length || 0)
+const completedNodes = computed(() => {
+  if (!vehicle.value?.nodeStates) return 0
+  return vehicle.value.nodeStates.filter(n => n.released).length
+})
+const orderProgressPercent = computed(() => {
+  if (totalNodes.value === 0) return 0
+  return (completedNodes.value / totalNodes.value) * 100
+})
+
+// Actions
+const sendAction = async (type) => {
+  if (!vehicle.value) return
+  await apiSendAction(vehicle.value.serialNumber, type)
+}
+
+const initPosition = async () => {
+  if (!vehicle.value || !targetMap.value) return
+  
+  await apiSendAction(vehicle.value.serialNumber, 'initPosition', {
+    x: 0,
+    y: 0,
+    theta: 0,
+    mapId: targetMap.value
+  })
+}
 </script>
 
 <style scoped>
@@ -242,6 +324,97 @@ const batteryColor = computed(() => {
 .error-desc {
   font-size: 12px;
   color: var(--oh-text-secondary);
+}
+
+/* Actions */
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-action {
+  flex: 1;
+  padding: 6px;
+  border-radius: 4px;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-pause { background: #FFC107; color: #000; }
+.btn-resume { background: #4CAF50; color: #fff; }
+.btn-cancel { background: #F44336; color: #fff; }
+
+.btn-init-pos {
+  background: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  height: 40px;
+}
+.btn-init-pos:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+
+.move-vehicle-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  margin-top: 4px;
+}
+
+.move-map-select {
+  flex: 1;
+}
+
+/* Order Info */
+.order-info {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 8px;
+  border-radius: 6px;
+}
+
+.order-id {
+  font-size: 10px;
+  color: var(--oh-text-secondary);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #2196F3;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 10px;
+  color: var(--oh-text-secondary);
+  text-align: right;
 }
 
 /* Slide transition */

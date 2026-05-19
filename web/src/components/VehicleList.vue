@@ -53,6 +53,7 @@
             <div class="vehicle-name">{{ vehicle.serialNumber }}</div>
             <div class="vehicle-meta">
               <span class="status-label">{{ store.getStatus(vehicle) }}</span>
+              <span v-if="vehicle.mapId && vehicle.mapId !== 'all'" style="margin-left: 6px; opacity: 0.6; font-size: 10px;">({{ vehicle.mapId }})</span>
             </div>
           </div>
 
@@ -109,11 +110,7 @@ const filterOptions = [
 
 const filteredVehicles = computed(() => {
   let list = store.vehicleList
-  
-  // 1. Filter by selected map
-  if (store.selectedMapName !== 'all') {
-    list = list.filter(v => v.mapId === store.selectedMapName)
-  }
+
 
   // 2. Filter by status tabs
   if (filter.value === 'all') return list

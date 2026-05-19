@@ -4,21 +4,25 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/yi-syong/OmniHive/internal/master/db"
+	"github.com/yi-syong/OmniHive/internal/master/order"
 	"github.com/yi-syong/OmniHive/internal/master/store"
 	"github.com/yi-syong/OmniHive/internal/master/websocket"
 )
 
 // Handler holds dependencies for REST API handlers.
 type Handler struct {
-	store *store.Store
-	hub   *websocket.Hub
+	store        *store.Store
+	hub          *websocket.Hub
+	orderManager *order.Manager
 }
 
 // NewHandler creates a new API handler.
-func NewHandler(s *store.Store, hub *websocket.Hub) *Handler {
+func NewHandler(s *store.Store, hub *websocket.Hub, om *order.Manager) *Handler {
 	return &Handler{
-		store: s,
-		hub:   hub,
+		store:        s,
+		hub:          hub,
+		orderManager: om,
 	}
 }
 
@@ -41,6 +45,14 @@ func (h *Handler) SetupRoutes(r *gin.Engine) {
 			vehicles.GET("", h.listVehicles)
 			vehicles.GET("/:id", h.getVehicle)
 			vehicles.GET("/:id/state", h.getVehicleState)
+			vehicles.GET("/:id/trajectory", h.getVehicleTrajectory)
+			vehicles.POST("/:id/actions", h.postVehicleAction)
+		}
+
+		// Order endpoints
+		orders := v1.Group("/orders")
+		{
+			orders.POST("", h.createOrder)
 		}
 
 		// System endpoints
@@ -157,6 +169,19 @@ func (h *Handler) getVehicleState(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, vs.State)
+}
+
+// getVehicleTrajectory returns the recent trajectory points for a vehicle.
+func (h *Handler) getVehicleTrajectory(c *gin.Context) {
+	id := c.Param("id")
+
+	var points []db.VehicleTrajectory
+	if err := db.DB.Where("serial_number = ?", id).Order("created_at asc").Find(&points).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch trajectory"})
+		return
+	}
+
+	c.JSON(http.StatusOK, points)
 }
 
 // getSystemStatus returns aggregate system statistics.

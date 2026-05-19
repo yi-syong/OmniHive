@@ -62,6 +62,12 @@ type Vehicle struct {
 	// Message counters
 	StateHeaderID int64
 	VizHeaderID   int64
+
+	// Order tracking
+	CurrentOrderID      string
+	NodeStates          []vda5050.NodeState
+	EdgeStates          []vda5050.EdgeState
+	PositionInitialized bool
 }
 
 // NewVehicle creates a new simulated vehicle.
@@ -94,6 +100,7 @@ func NewVehicle(id int, manufacturer string, cfg config.VehicleConfig, waypoints
 		CurrentWPIdx:  0,
 		Forward:       true,
 		MapID:         mapID,
+		PositionInitialized: true, // Default to true using YAML starting position
 	}
 }
 
@@ -112,7 +119,7 @@ func (v *Vehicle) Update(dt float64) {
 		v.updateDriving(dt)
 		v.updateBattery(dt)
 	case StatusIdle:
-		v.startDriving()
+		// Do nothing, wait for order
 	}
 }
 
@@ -137,6 +144,10 @@ func (v *Vehicle) updateDriving(dt float64) {
 		// Arrived at waypoint
 		v.X = target.X
 		v.Y = target.Y
+		// Mark node/edge as passed if needed, simplified for now
+		if v.CurrentWPIdx < len(v.NodeStates) {
+			v.NodeStates[v.CurrentWPIdx].Released = true
+		}
 		v.advanceWaypoint()
 	} else {
 		// Move toward target
@@ -149,22 +160,16 @@ func (v *Vehicle) updateDriving(dt float64) {
 	v.Driving = true
 }
 
-// advanceWaypoint moves to the next waypoint, reversing direction at endpoints.
+// advanceWaypoint moves to the next waypoint or stops if at the end.
 func (v *Vehicle) advanceWaypoint() {
-	if v.Forward {
-		if v.CurrentWPIdx >= len(v.Waypoints)-1 {
-			v.Forward = false
-			v.CurrentWPIdx--
-		} else {
-			v.CurrentWPIdx++
-		}
+	if v.CurrentWPIdx >= len(v.Waypoints)-1 {
+		v.Status = StatusIdle
+		v.Driving = false
+		v.Speed = 0
+		v.Waypoints = nil
+		v.CurrentOrderID = ""
 	} else {
-		if v.CurrentWPIdx <= 0 {
-			v.Forward = true
-			v.CurrentWPIdx++
-		} else {
-			v.CurrentWPIdx--
-		}
+		v.CurrentWPIdx++
 	}
 }
 
@@ -280,8 +285,9 @@ func (v *Vehicle) ToState() vda5050.State {
 			FieldViolation: false,
 		},
 		Errors:       v.Errors,
-		NodeStates:   []vda5050.NodeState{},
-		EdgeStates:   []vda5050.EdgeState{},
+		OrderID:      v.CurrentOrderID,
+		NodeStates:   v.NodeStates,
+		EdgeStates:   v.EdgeStates,
 		ActionStates: []vda5050.ActionState{},
 	}
 }
@@ -300,7 +306,7 @@ func (v *Vehicle) ToVisualization() vda5050.Visualization {
 			Y:                   v.Y,
 			Theta:               v.Theta,
 			MapID:               v.MapID,
-			PositionInitialized: true,
+			PositionInitialized: v.PositionInitialized,
 		},
 		Velocity: &vda5050.Velocity{
 			Vx: v.Speed * math.Cos(v.Theta),

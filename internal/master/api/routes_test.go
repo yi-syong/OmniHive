@@ -41,7 +41,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	s := store.New(30 * time.Second)
 	hub := websocket.NewHub()
 
-	handler := NewHandler(s, hub)
+	handler := NewHandler(s, hub, nil)
 	handler.SetupRoutes(router)
 
 	return router

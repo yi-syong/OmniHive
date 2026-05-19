@@ -48,6 +48,9 @@ func (e *Engine) Run(ctx context.Context) error {
 	// Initialize vehicles
 	e.initVehicles()
 
+	// Subscribe to incoming orders and actions
+	e.subscribeTopics()
+
 	// Publish initial connection status for all vehicles
 	e.publishAllConnections(vda5050.ConnectionOnline)
 
@@ -146,6 +149,40 @@ func (e *Engine) initVehicles() {
 		e.vehicles[i] = v
 		log.Printf("[Engine] Created vehicle %s on path %s (battery: %.0f%%)",
 			v.SerialNumber, e.cfg.Paths[pathIdx].Name, v.Battery)
+	}
+}
+
+// subscribeTopics sets up MQTT subscriptions for all vehicles.
+func (e *Engine) subscribeTopics() {
+	for _, v := range e.vehicles {
+		// Capture variable for closures
+		vCopy := v
+
+		// Subscribe to Order topic
+		orderTopic := vda5050.OrderTopic(vCopy.Manufacturer, vCopy.SerialNumber)
+		e.client.Subscribe(orderTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
+			var order vda5050.Order
+			if err := json.Unmarshal(msg.Payload(), &order); err != nil {
+				log.Printf("[Engine] Failed to decode order for %s: %v", vCopy.SerialNumber, err)
+				return
+			}
+			vCopy.ApplyOrder(&order)
+		})
+
+		// Subscribe to InstantActions topic
+		actionTopic := vda5050.InstantActionTopic(vCopy.Manufacturer, vCopy.SerialNumber)
+		e.client.Subscribe(actionTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
+			var instantActions vda5050.InstantActions
+			if err := json.Unmarshal(msg.Payload(), &instantActions); err != nil {
+				log.Printf("[Engine] Failed to decode actions for %s: %v", vCopy.SerialNumber, err)
+				return
+			}
+			for _, action := range instantActions.Actions {
+				vCopy.ApplyAction(action)
+			}
+		})
+		
+		log.Printf("[Engine] Subscribed to %s and %s", orderTopic, actionTopic)
 	}
 }
 

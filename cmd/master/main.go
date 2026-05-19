@@ -13,6 +13,7 @@ import (
 	"github.com/yi-syong/OmniHive/internal/master/config"
 	"github.com/yi-syong/OmniHive/internal/master/db"
 	mqtthandler "github.com/yi-syong/OmniHive/internal/master/mqtt"
+	"github.com/yi-syong/OmniHive/internal/master/order"
 	"github.com/yi-syong/OmniHive/internal/master/store"
 	"github.com/yi-syong/OmniHive/internal/master/websocket"
 )
@@ -55,7 +56,9 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{"/health"}}))
 
-	apiHandler := api.NewHandler(vehicleStore, wsHub)
+	orderManager := order.NewManager(mqttHandler.GetClient(), vehicleStore)
+
+	apiHandler := api.NewHandler(vehicleStore, wsHub, orderManager)
 	apiHandler.SetupRoutes(router)
 
 	go func() {
