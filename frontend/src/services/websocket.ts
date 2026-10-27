@@ -23,6 +23,11 @@ export const selectedNodeForDispatch = ref<string>('Node-03');
 // Multi-AGV Fleet Selection & Dashboard View State
 export const selectedVehicleId = ref<string>('AGV-001');
 export const dashboardActiveTab = ref<'fleet' | 'vehicle'>('fleet');
+export const cameraFollowTrigger = ref<number>(0);
+export function requestCameraFollowVehicle(vehId?: string) {
+  if (vehId) selectedVehicleId.value = vehId;
+  cameraFollowTrigger.value++;
+}
 
 // 3D Direct Interactive Vehicle Mission Dispatch State
 export const is3DQuickDispatchActive = ref<boolean>(false);

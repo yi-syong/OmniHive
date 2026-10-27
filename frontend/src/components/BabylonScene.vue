@@ -2,32 +2,23 @@
   <div class="scene-container">
     <canvas ref="canvasRef" class="render-canvas"></canvas>
 
-    <!-- Top Camera & Tool Selector -->
+    <!-- Top Camera & Global Field View Selector -->
     <div :class="['camera-toolbar', { 'in-edit-mode': currentAppMode === 'edit' }]">
       <button 
         :class="['cam-btn', { active: currentView === 'iso' }]" 
         @click="setCameraView('iso')"
-        title="鳥瞰等角視角"
+        title="全廠鳥瞰等角視角"
       >
         <Box :size="14" />
-        <span>等角</span>
+        <span>等角全景</span>
       </button>
       <button 
         :class="['cam-btn', { active: currentView === 'top' }]" 
         @click="setCameraView('top')"
-        title="正上方平面圖"
+        title="正上方全廠平面總覽"
       >
         <Compass :size="14" />
-        <span>俯視</span>
-      </button>
-      <button 
-        v-if="currentAppMode !== 'edit'"
-        :class="['cam-btn', { active: currentView === 'follow' }]" 
-        @click="setCameraView('follow')"
-        :title="`跟隨 ${selectedVehicleId} 移動視角`"
-      >
-        <Crosshair :size="14" />
-        <span>跟隨 {{ selectedVehicleId }}</span>
+        <span>俯視平面</span>
       </button>
     </div>
 
@@ -341,7 +332,6 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { 
   Box, 
   Compass, 
-  Crosshair, 
   Move, 
   PlusCircle, 
   Plus,
@@ -377,7 +367,8 @@ import {
   quickDispatchSteps,
   sendDispatchOrder,
   selectedVehicleId,
-  dashboardActiveTab
+  dashboardActiveTab,
+  cameraFollowTrigger
 } from '../services/websocket';
 import type { LayoutNode, LayoutProp, LayoutEdge, DispatchAction } from '../types';
 
@@ -508,6 +499,12 @@ onMounted(async () => {
     },
     { deep: true }
   );
+
+  watch(cameraFollowTrigger, () => {
+    if (currentAppMode.value === 'simulate') {
+      setCameraView('follow');
+    }
+  });
 
   function syncNodeDragBehaviors() {
     const canDrag = (currentAppMode.value === 'edit' && currentEditorTool.value === 'select');
@@ -1348,10 +1345,11 @@ function setupInteractivePointerEvents(sc: BABYLON.Scene) {
           dashboardActiveTab.value = 'vehicle';
           is3DQuickDispatchActive.value = true;
           resetDispatchSteps();
+          setCameraView('follow');
           if (agvHaloMesh) agvHaloMesh.isVisible = true;
           updateQuickDispatchPreviewLine(sc);
           hideAllNodeLabels();
-          emit('notify', `已選定車輛 ${selectedVehicleId.value}！請於左側設定任務路線與動作`, 'info');
+          emit('notify', `已鎖定車輛 ${selectedVehicleId.value}，鏡頭自動平滑跟隨！`, 'info');
           return;
         }
 
@@ -1862,30 +1860,77 @@ function handleQuickDispatchLaunch() {
   }
 }
 
-// Camera View Helpers
+// Camera View Helpers: Macro Factory Overview vs Micro Vehicle Follow
 function setCameraView(view: 'iso' | 'top' | 'follow') {
   currentView.value = view;
   if (!camera) return;
 
-  BABYLON.Animation.CreateAndStartAnimation(
-    'camReset',
-    camera,
-    'radius',
-    30,
-    15,
-    camera.radius,
-    view === 'top' ? 26 : 28,
-    BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-  );
+  if (view === 'follow') {
+    // Smoothly zoom in to closer radius and transition target to vehicle
+    BABYLON.Animation.CreateAndStartAnimation(
+      'camFollowRadius',
+      camera,
+      'radius',
+      30,
+      18,
+      camera.radius,
+      15,
+      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+    );
+    if (agvRoot) {
+      BABYLON.Animation.CreateAndStartAnimation(
+        'camTargetX',
+        camera.target,
+        'x',
+        30,
+        18,
+        camera.target.x,
+        agvRoot.position.x,
+        BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+      );
+      BABYLON.Animation.CreateAndStartAnimation(
+        'camTargetY',
+        camera.target,
+        'y',
+        30,
+        18,
+        camera.target.y,
+        agvRoot.position.y,
+        BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+      );
+      BABYLON.Animation.CreateAndStartAnimation(
+        'camTargetZ',
+        camera.target,
+        'z',
+        30,
+        18,
+        camera.target.z,
+        agvRoot.position.z,
+        BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+      );
+    }
+  } else {
+    // Return to macro global factory view
+    BABYLON.Animation.CreateAndStartAnimation(
+      'camReset',
+      camera,
+      'radius',
+      30,
+      18,
+      camera.radius,
+      view === 'top' ? 26 : 28,
+      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+    );
 
-  if (view === 'iso') {
-    BABYLON.Animation.CreateAndStartAnimation('camA', camera, 'alpha', 30, 20, camera.alpha, -Math.PI / 3, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
-    BABYLON.Animation.CreateAndStartAnimation('camB', camera, 'beta', 30, 20, camera.beta, Math.PI / 3.2, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
-    camera.target = new BABYLON.Vector3(5, 0, 5);
-  } else if (view === 'top') {
-    BABYLON.Animation.CreateAndStartAnimation('camA', camera, 'alpha', 30, 20, camera.alpha, -Math.PI / 2, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
-    BABYLON.Animation.CreateAndStartAnimation('camB', camera, 'beta', 30, 20, camera.beta, 0.05, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
-    camera.target = new BABYLON.Vector3(5, 0, 5);
+    if (view === 'iso') {
+      BABYLON.Animation.CreateAndStartAnimation('camA', camera, 'alpha', 30, 20, camera.alpha, -Math.PI / 3, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+      BABYLON.Animation.CreateAndStartAnimation('camB', camera, 'beta', 30, 20, camera.beta, Math.PI / 3.2, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+      camera.target = new BABYLON.Vector3(5, 0, 5);
+    } else if (view === 'top') {
+      BABYLON.Animation.CreateAndStartAnimation('camA', camera, 'alpha', 30, 20, camera.alpha, -Math.PI / 2, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+      BABYLON.Animation.CreateAndStartAnimation('camB', camera, 'beta', 30, 20, camera.beta, 0.05, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+      camera.target = new BABYLON.Vector3(5, 0, 5);
+    }
   }
 }
 

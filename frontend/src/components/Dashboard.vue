@@ -425,7 +425,8 @@ import {
   factoryLayout,
   selectedVehicleId,
   dashboardActiveTab,
-  is3DQuickDispatchActive
+  is3DQuickDispatchActive,
+  requestCameraFollowVehicle
 } from '../services/websocket';
 
 defineEmits<{ (e: 'close'): void }>();
@@ -457,11 +458,13 @@ const statusBadgeClass = computed(() => {
 function drillDownToVehicle(vehId: string) {
   selectedVehicleId.value = vehId;
   dashboardActiveTab.value = 'vehicle';
+  requestCameraFollowVehicle(vehId);
 }
 
 function openDispatchForVehicle(vehId: string) {
   selectedVehicleId.value = vehId;
   is3DQuickDispatchActive.value = true;
+  requestCameraFollowVehicle(vehId);
 }
 
 function getNodeName(nodeId: string | undefined): string {
