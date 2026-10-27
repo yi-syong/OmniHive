@@ -1,0 +1,6 @@
+SPECIFICATION_*.md
+.agents/
+backend/server
+backend/simulator
+frontend/node_modules/
+frontend/dist/

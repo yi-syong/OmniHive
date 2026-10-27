@@ -1,0 +1,16 @@
+FROM golang:1.24-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/simulator ./cmd/simulator
+
+FROM alpine:3.20
+WORKDIR /app
+RUN apk --no-cache add ca-certificates tzdata
+COPY --from=builder /app/simulator /app/simulator
+COPY factory_layout.json /app/factory_layout.json
+ENV MQTT_BROKER=tcp://mosquitto:1883
+ENV AGV_ID=AGV-001
+ENV LAYOUT_FILE=/app/factory_layout.json
+CMD ["/app/simulator"]
