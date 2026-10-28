@@ -4,20 +4,12 @@
     {
       "id": "Node-01",
       "name": "待命/充電區",
-      "x": 0,
+      "x": 1,
       "y": 0,
-      "z": 0,
+      "z": -0.82,
       "function": "Idle/Charge",
-      "description": "AGV 待命與自動充電樁"
-    },
-    {
-      "id": "Node-02",
-      "name": "路徑轉折點",
-      "x": 9.38,
-      "y": 0,
-      "z": 0.06,
-      "function": "Transit",
-      "description": "主幹道路徑交會轉折點"
+      "description": "AGV 待命與自動充電樁",
+      "has_cargo": false
     },
     {
       "id": "Node-03",
@@ -26,125 +18,22 @@
       "y": 0,
       "z": 10,
       "function": "Pick-up",
-      "description": "智慧貨架取貨作業區"
+      "description": "智慧貨架取貨作業區",
+      "has_cargo": false
     },
     {
-      "id": "Node-04",
-      "name": "卸貨區",
-      "x": 2.02,
+      "id": "Node-03",
+      "name": "貨物站 Node-03",
+      "x": -4.9,
       "y": 0,
-      "z": 10.19,
-      "function": "Drop-off",
-      "description": "入庫輸送帶卸貨區"
-    },
-    {
-      "id": "Node-05",
-      "name": "自訂站點 Node-05",
-      "x": -4.72,
-      "y": 0,
-      "z": -2.34,
-      "function": "Transit",
-      "description": "場域編輯器新增站點"
-    },
-    {
-      "id": "Node-06",
-      "name": "自訂站點 Node-06",
-      "x": -2.9,
-      "y": 0,
-      "z": -5.9,
-      "function": "Transit",
-      "description": "場域編輯器新增站點"
-    },
-    {
-      "id": "Node-07",
-      "name": "自訂站點 Node-07",
-      "x": 4.5,
-      "y": 0,
-      "z": -6.7,
-      "function": "Transit",
-      "description": "場域編輯器新增站點"
-    },
-    {
-      "id": "Node-08",
-      "name": "自訂站點 Node-08",
-      "x": 9.5,
-      "y": 0,
-      "z": -4.8,
-      "function": "Transit",
-      "description": "場域編輯器新增站點"
+      "z": -0.1,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
     }
   ],
-  "edges": [
-    {
-      "id": "Edge-01-02",
-      "startNodeId": "Node-01",
-      "endNodeId": "Node-02"
-    },
-    {
-      "id": "Edge-02-03",
-      "startNodeId": "Node-02",
-      "endNodeId": "Node-03"
-    },
-    {
-      "id": "Edge-03-04",
-      "startNodeId": "Node-03",
-      "endNodeId": "Node-04"
-    },
-    {
-      "id": "Edge-04-01",
-      "startNodeId": "Node-04",
-      "endNodeId": "Node-01"
-    },
-    {
-      "id": "Edge-01-05",
-      "startNodeId": "Node-01",
-      "endNodeId": "Node-05",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-05-06",
-      "startNodeId": "Node-05",
-      "endNodeId": "Node-06",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-06-07",
-      "startNodeId": "Node-06",
-      "endNodeId": "Node-07",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-08-07",
-      "startNodeId": "Node-08",
-      "endNodeId": "Node-07",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-02-08",
-      "startNodeId": "Node-02",
-      "endNodeId": "Node-08",
-      "bidirectional": true
-    }
-  ],
+  "edges": [],
   "props": [
-    {
-      "id": "Pillar-01",
-      "modelType": "pillar",
-      "x": -1.2,
-      "y": 0.8,
-      "z": 0,
-      "rotationY": 0,
-      "scale": 1
-    },
-    {
-      "id": "Rack-01",
-      "modelType": "rack",
-      "x": 11.4,
-      "y": 0,
-      "z": 10,
-      "rotationY": 0,
-      "scale": 1
-    },
     {
       "id": "Conveyor-01",
       "modelType": "workstation",

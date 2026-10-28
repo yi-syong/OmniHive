@@ -22,6 +22,8 @@ export interface TaskInfo {
   current_node?: string;
   previous_node?: string;
   has_cargo?: boolean;
+  is_traffic_wait?: boolean;
+  wait_seconds?: number;
 }
 
 export interface StateUpdateMessage {
@@ -66,6 +68,7 @@ export interface LayoutNode {
   z: number;
   function: string;
   description: string;
+  has_cargo?: boolean;
 }
 
 export interface LayoutEdge {
@@ -94,3 +97,14 @@ export interface FactoryLayout {
 
 export type AppMode = 'simulate' | 'edit';
 export type EditorTool = 'select' | 'add_node' | 'add_edge' | 'add_prop' | 'delete';
+
+export type TrafficStrategy = 'wait' | 'reroute';
+
+export interface TrafficMetricsMessage {
+  type: 'traffic_metrics';
+  strategy_name: TrafficStrategy;
+  throughput: number;
+  total_wait_time_sec: number;
+  avg_extra_cost_pct: number;
+  active_vehicles: number;
+}

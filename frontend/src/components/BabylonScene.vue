@@ -29,25 +29,40 @@
           <button 
             :class="['tool-btn', { active: currentEditorTool === 'select' }]"
             @click="currentEditorTool = 'select'"
-            title="選取並拖曳移動物件"
+            title="選取並拖曳移動站點或物件"
           >
             <Move :size="14" />
-            <span>選取</span>
+            <span>選取移動</span>
           </button>
+          
           <button 
             :class="['tool-btn', { active: currentEditorTool === 'add_node' }]"
             @click="currentEditorTool = 'add_node'"
-            title="點擊地面新增站點節點"
+            title="選擇類型並點擊地面放置站點"
           >
             <PlusCircle :size="14" />
             <span>加節點</span>
           </button>
+
+          <!-- Node Type Quick Selector (Requirement 1) -->
+          <div v-if="currentEditorTool === 'add_node'" class="edge-dir-selector node-type-selector">
+            <button 
+              v-for="opt in nodeTypeOptions" 
+              :key="opt.value"
+              :class="['dir-pill', { active: newNodeFunction === opt.value }]"
+              @click="newNodeFunction = opt.value"
+              :title="opt.desc"
+            >
+              <component :is="opt.icon" :size="11" />
+              <span>{{ opt.label }}</span>
+            </button>
+          </div>
           
-          <!-- Intuitive Edge Tool with Direction Selector -->
+          <!-- Intuitive Edge Tool with Direction Selector (Requirement 4) -->
           <button 
             :class="['tool-btn', { active: currentEditorTool === 'add_edge' }]"
             @click="currentEditorTool = 'add_edge'"
-            title="點選節點以動態橡皮筋拉線建立路徑"
+            title="點選起點與終點節點以建立路徑"
           >
             <GitCommit :size="14" />
             <span>建路徑</span>
@@ -61,7 +76,7 @@
               title="單向通行 (起點 ➔ 終點)"
             >
               <ArrowRight :size="11" />
-              <span>單向</span>
+              <span>單向 (➔)</span>
             </button>
             <button 
               :class="['dir-pill', { active: edgeDirectionMode === 'bidirectional' }]"
@@ -69,22 +84,14 @@
               title="雙向通行 (雙向互通 ⇄)"
             >
               <ArrowLeftRight :size="11" />
-              <span>雙向</span>
+              <span>雙向 (⇄)</span>
             </button>
           </div>
 
           <button 
-            :class="['tool-btn', { active: currentEditorTool === 'add_prop' }]"
-            @click="currentEditorTool = 'add_prop'"
-            title="點擊地面放置貨架/工作站"
-          >
-            <Layers :size="14" />
-            <span>加貨架</span>
-          </button>
-          <button 
             :class="['tool-btn', 'tool-btn-danger', { active: currentEditorTool === 'delete' }]"
             @click="currentEditorTool = 'delete'"
-            title="點擊物件以刪除"
+            title="點擊站點、路徑或物件直接刪除"
           >
             <Trash2 :size="14" />
             <span>刪除</span>
@@ -96,15 +103,15 @@
             <Save :size="14" />
             <span>儲存並模擬</span>
           </button>
-          <button class="action-btn reset-btn" @click="handleResetLayout" title="還原預設場域佈局">
-            <RotateCcw :size="14" />
-            <span>復原預設</span>
+          <button class="action-btn cancel-btn" @click="handleCancelEdit" title="取消編輯，捨棄未儲存之變更並返回模擬模式">
+            <XCircle :size="14" />
+            <span>取消編輯</span>
           </button>
         </div>
       </div>
     </transition>
 
-    <!-- Problem 2: Rubber-band Connection Interactive Hint Banner -->
+    <!-- Rubber-band Connection Interactive Hint Banner -->
     <transition name="fade">
       <div v-if="currentAppMode === 'edit' && currentEditorTool === 'add_edge' && edgeFirstNodeId" class="edge-hint-banner">
         <div class="hint-pulse-dot"></div>
@@ -118,36 +125,50 @@
       </div>
     </transition>
 
-    <!-- Problem 2: Edge Selection & Direction Quick Configuration Popover -->
-    <transition name="slide-up">
-      <div v-if="currentAppMode === 'edit' && selectedEdgeForEdit" class="edge-popover">
-        <div class="popover-head">
-          <div class="flex-align-center gap-6">
-            <GitCommit :size="14" class="text-cyan" />
-            <span class="popover-title">路徑設定 · {{ selectedEdgeForEdit.id }}</span>
+    <!-- Right-Click Station Cargo Status Context Menu (Requirement 5) -->
+    <transition name="fade">
+      <div 
+        v-if="cargoContextMenu.visible && cargoContextMenu.node" 
+        class="cargo-context-menu"
+        :style="{ top: `${cargoContextMenu.y}px`, left: `${cargoContextMenu.x}px` }"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <div class="context-menu-header">
+          <div class="header-icon-box">
+            <Package :size="14" />
           </div>
-          <button class="popover-close" @click="selectedEdgeForEdit = null">
+          <div class="header-info">
+            <span class="context-title">{{ cargoContextMenu.node.name || cargoContextMenu.node.id }}</span>
+            <span class="context-sub">貨物狀態</span>
+          </div>
+          <button class="context-close-btn" @click="closeCargoContextMenu" title="關閉">
             <X :size="13" />
           </button>
         </div>
-        <div class="popover-body">
-          <div class="popover-route-line">
-            <span class="route-node">{{ selectedEdgeForEdit.startNodeId }}</span>
-            <span class="route-arrow">{{ selectedEdgeForEdit.bidirectional ? '⇄ 雙向互通' : '➔ 單向通行' }}</span>
-            <span class="route-node">{{ selectedEdgeForEdit.endNodeId }}</span>
-          </div>
-          <div class="popover-btn-group">
-            <button class="popover-act-btn" @click="toggleSelectedEdgeBidirectional">
-              <ArrowLeftRight :size="13" />
-              <span>{{ selectedEdgeForEdit.bidirectional ? '轉為單向 (➔)' : '轉為雙向 (⇄)' }}</span>
+
+        <div class="context-menu-body">
+          <div class="cargo-toggle-group">
+            <button 
+              type="button"
+              class="cargo-pill-btn"
+              :class="{ active: cargoContextMenu.node.has_cargo }"
+              @click="setNodeCargoStatus(cargoContextMenu.node, true)"
+            >
+              <span class="cargo-status-dot has-cargo"></span>
+              <span class="cargo-status-text">有貨</span>
+              <Check v-if="cargoContextMenu.node.has_cargo" :size="13" class="check-mark" />
             </button>
-            <button class="popover-act-btn" @click="reverseSelectedEdgeDirection">
-              <RotateCw :size="13" />
-              <span>反轉方向</span>
-            </button>
-            <button class="popover-act-btn btn-danger" @click="deleteSelectedEdge">
-              <Trash2 :size="13" />
-              <span>刪除路徑</span>
+
+            <button 
+              type="button"
+              class="cargo-pill-btn"
+              :class="{ active: !cargoContextMenu.node.has_cargo }"
+              @click="setNodeCargoStatus(cargoContextMenu.node, false)"
+            >
+              <span class="cargo-status-dot no-cargo"></span>
+              <span class="cargo-status-text">無貨</span>
+              <Check v-if="!cargoContextMenu.node.has_cargo" :size="13" class="check-mark" />
             </button>
           </div>
         </div>
@@ -168,7 +189,7 @@
             <div class="mission-titles">
               <span class="mission-panel-title">{{ selectedVehicleId }} 任務派遣</span>
               <span class="mission-panel-sub">
-                [{{ agvState.task_info.status }} · 電量 {{ agvState.battery.level.toFixed(0) }}%]
+                [{{ currentSelectedVehicleState.task_info?.status || 'IDLE' }} · 電量 {{ (currentSelectedVehicleState.battery?.level || 0).toFixed(0) }}%]
               </span>
             </div>
           </div>
@@ -219,6 +240,18 @@
                       </option>
                     </select>
                   </div>
+                  <!-- Quick station cargo state toggle pill -->
+                  <button 
+                    v-if="isCargoNode(step.node_id)"
+                    type="button"
+                    class="step-cargo-toggle" 
+                    :class="{ 'has-cargo': getNodeObj(step.node_id)?.has_cargo }"
+                    @click.stop="toggleStationCargo(getNodeObj(step.node_id)!)"
+                    :title="getNodeObj(step.node_id)?.has_cargo ? '點擊設為無貨' : '點擊設為有貨'"
+                  >
+                    <Package :size="11" />
+                    <span>{{ getNodeObj(step.node_id)?.has_cargo ? '有貨' : '無貨' }}</span>
+                  </button>
                   <button 
                     v-if="quickDispatchSteps.length > 1" 
                     class="step-delete-btn" 
@@ -237,7 +270,7 @@
                       type="button"
                       :class="['step-act-btn', { active: step.action === 'none' }]"
                       @click.stop="setStepAction(idx, 'none')"
-                      title="純移動 (抵達後不停留直接往下一站)"
+                      title="純移動：抵達後不停留直接完成任務或往下一站"
                     >
                       <Navigation :size="12" />
                       <span>純移動</span>
@@ -246,7 +279,7 @@
                       type="button"
                       :class="['step-act-btn', 'act-wait', { active: step.action === 'wait' }]"
                       @click.stop="setStepAction(idx, 'wait')"
-                      title="原地等待"
+                      title="原地等待：抵達站點後原地停留 3 秒作動計時，完成才結束"
                     >
                       <Clock :size="12" />
                       <span>等待</span>
@@ -254,8 +287,9 @@
                     <button 
                       type="button"
                       :class="['step-act-btn', 'act-pick', { active: step.action === 'pick' }]"
+                      :disabled="!isCargoNode(step.node_id)"
                       @click.stop="setStepAction(idx, 'pick')"
-                      title="取貨作業"
+                      :title="isCargoNode(step.node_id) ? '取貨' : '⚠️ 非貨物站點，無法取貨'"
                     >
                       <PackagePlus :size="12" />
                       <span>取貨</span>
@@ -263,8 +297,9 @@
                     <button 
                       type="button"
                       :class="['step-act-btn', 'act-drop', { active: step.action === 'drop' }]"
+                      :disabled="!isCargoNode(step.node_id)"
                       @click.stop="setStepAction(idx, 'drop')"
-                      title="卸貨作業"
+                      :title="isCargoNode(step.node_id) ? '放貨' : '⚠️ 非貨物站點，無法放貨'"
                     >
                       <PackageMinus :size="12" />
                       <span>放貨</span>
@@ -275,7 +310,7 @@
                       :class="['step-act-btn', 'act-charge', { active: step.action === 'charge' }]"
                       :disabled="!isChargingNode(step.node_id)"
                       @click.stop="setStepAction(idx, 'charge')"
-                      :title="isChargingNode(step.node_id) ? '前往充電樁補充電量' : '此站非充電樁，無法設定充電'"
+                      :title="isChargingNode(step.node_id) ? '充電' : '⚠️ 非充電樁，無法充電'"
                     >
                       <Zap :size="12" />
                       <span>充電</span>
@@ -284,7 +319,16 @@
                 </div>
 
                 <div v-if="step.action === 'charge' && !isChargingNode(step.node_id)" class="step-warning-text">
-                  ⚠️ 該站點非充電樁，請改選其他動作或變更站點
+                  ⚠️ 此站非充電樁，無法充電
+                </div>
+                <div v-else-if="(step.action === 'pick' || step.action === 'drop') && !isCargoNode(step.node_id)" class="step-warning-text">
+                  ⚠️ 此站非貨物站，無法取放貨
+                </div>
+                <div v-else-if="step.action === 'pick' && isCargoNode(step.node_id) && !getNodeObj(step.node_id)?.has_cargo" class="step-warning-text">
+                  ⚠️ 站點無貨，無法取貨（可按右鍵設為有貨）
+                </div>
+                <div v-else-if="step.action === 'drop' && isCargoNode(step.node_id) && getNodeObj(step.node_id)?.has_cargo" class="step-warning-text">
+                  ⚠️ 站點已有貨，無法放貨（可按右鍵設為無貨）
                 </div>
               </div>
             </div>
@@ -314,7 +358,7 @@
         <div class="mission-panel-footer">
           <button 
             class="btn-mission-launch"
-            :disabled="quickDispatchSteps.length === 0 || agvState.task_info.status === 'DRIVING' || agvState.task_info.status === 'ACTING'"
+            :disabled="quickDispatchSteps.length === 0 || currentSelectedVehicleState.task_info?.status === 'DRIVING' || currentSelectedVehicleState.task_info?.status === 'ACTING'"
             @click="handleQuickDispatchLaunch"
           >
             <Send :size="15" />
@@ -336,17 +380,20 @@ import {
   PlusCircle, 
   Plus,
   GitCommit, 
-  Layers, 
   Trash2, 
   Save, 
   RotateCcw, 
   X, 
+  XCircle,
+  Check,
   ArrowRight, 
   ArrowLeftRight, 
   RotateCw,
   Send,
+  Package,
   PackagePlus,
   PackageMinus,
+  Radio,
   Zap,
   Navigation,
   Clock
@@ -367,8 +414,10 @@ import {
   quickDispatchSteps,
   sendDispatchOrder,
   selectedVehicleId,
+  selectVehicle,
   dashboardActiveTab,
-  cameraFollowTrigger
+  cameraFollowTrigger,
+  fleetVehicles
 } from '../services/websocket';
 import type { LayoutNode, LayoutProp, LayoutEdge, DispatchAction } from '../types';
 
@@ -385,20 +434,43 @@ let scene: BABYLON.Scene | null = null;
 let camera: BABYLON.ArcRotateCamera | null = null;
 let gizmoManager: BABYLON.GizmoManager | null = null;
 
-// AGV Meshes & Nodes
+// ----------------------------------------------------
+// Multi-AGV Fleet Visual Management
+// ----------------------------------------------------
+export interface VehicleVisual {
+  id: string;
+  root: BABYLON.TransformNode;
+  glbRoot: BABYLON.AbstractMesh | null;
+  cargoMesh: BABYLON.AbstractMesh | BABYLON.TransformNode | null;
+  haloMesh: BABYLON.Mesh | null;
+  trafficWaitMesh: BABYLON.Mesh | null;
+  targetPos: BABYLON.Vector3;
+  currentPos: BABYLON.Vector3;
+  targetTheta: number;
+  currentTheta: number;
+  liftNode: BABYLON.TransformNode | BABYLON.Mesh | null;
+  baseLiftPosY: number;
+  isPickAnimationRunning: boolean;
+  isDropAnimationRunning: boolean;
+  color: BABYLON.Color3;
+}
+
+const vehicleVisuals = new Map<string, VehicleVisual>();
+
+// Backward compatible primary reference pointers
 let agvRoot: BABYLON.TransformNode | null = null;
-let agvGlbRoot: BABYLON.AbstractMesh | null = null;
-let cargoMesh: BABYLON.Mesh | null = null;
+let cargoMesh: BABYLON.AbstractMesh | BABYLON.TransformNode | null = null;
 let beaconMaterial: BABYLON.StandardMaterial | null = null;
 let agvHaloMesh: BABYLON.Mesh | null = null;
 let quickDispatchPreviewLine: BABYLON.LinesMesh | null = null;
 
 // Dynamic Path & Node meshes dictionary for fast updates
 const nodeMeshesMap = new Map<string, BABYLON.Mesh>();
-const nodeLabelsMap = new Map<string, BABYLON.Mesh>();
-const currentlyActiveLabelNodeId = ref<string | null>(null);
 const activeStepIndex = ref<number | null>(0);
-const currentAgvStartNode = computed(() => agvState.task_info.current_node || 'Node-01');
+const currentSelectedVehicleState = computed(() => {
+  return fleetVehicles[selectedVehicleId.value] || agvState;
+});
+const currentAgvStartNode = computed(() => currentSelectedVehicleState.value.task_info?.current_node || 'Node-01');
 
 const edgeMeshesMap = new Map<string, BABYLON.LinesMesh | BABYLON.Mesh>();
 const edgeArrowMeshesMap = new Map<string, BABYLON.AbstractMesh[]>();
@@ -409,7 +481,40 @@ const agvNodesList = ref<string[]>([]);
 const selectedLiftNodeName = ref<string>('');
 const baseLiftPosY = ref<number>(0);
 
-// Problem 2: Interactive Rubber-band connection state & Edge configuration
+// Edit Mode: Node Type sub-options (Requirement 1: Pick/Drop is unified into Cargo)
+const newNodeFunction = ref<'Transit' | 'Wait' | 'Idle/Charge' | 'Cargo'>('Transit');
+
+const nodeTypeOptions = [
+  { value: 'Transit' as const, label: '通道點', icon: Navigation, desc: '導航通道點' },
+  { value: 'Wait' as const, label: '等待點', icon: Clock, desc: '原地等待點' },
+  { value: 'Idle/Charge' as const, label: '充電站', icon: Zap, desc: '充電樁站點' },
+  { value: 'Cargo' as const, label: '貨物站', icon: Package, desc: '取放貨棧板站' },
+];
+
+// Right-click Cargo Context Menu (Requirement 5)
+const cargoContextMenu = ref<{
+  visible: boolean;
+  x: number;
+  y: number;
+  node: LayoutNode | null;
+}>({
+  visible: false,
+  x: 0,
+  y: 0,
+  node: null
+});
+
+// Minimum Real-World Safety Clearance (Non-overlapping constraint)
+const MIN_CLEARANCE_DIST = 1.0;
+
+// Selected Node in Edit Mode
+const selectedNodeForEdit = ref<LayoutNode | null>(null);
+
+// Station Pallet & Cargo Meshes
+const stationPalletMap = new Map<string, BABYLON.AbstractMesh>();
+const stationCargoMap = new Map<string, BABYLON.AbstractMesh>();
+
+// Interactive Rubber-band connection state & Edge configuration
 const edgeFirstNodeId = ref<string | null>(null);
 const hoveredNodeId = ref<string | null>(null);
 const edgeDirectionMode = ref<'oneway' | 'bidirectional'>('oneway');
@@ -418,10 +523,8 @@ let rubberBandLine: BABYLON.LinesMesh | null = null;
 let nodeSelectionRing: BABYLON.Mesh | null = null;
 
 // Kinematics Interpolation
-const targetPos = new BABYLON.Vector3(0, 0.25, 0);
-let currentPos = new BABYLON.Vector3(0, 0.25, 0);
-let targetTheta = Math.PI / 2;
-let currentTheta = Math.PI / 2;
+const targetPos = new BABYLON.Vector3(0, 0, 0);
+let currentPos = new BABYLON.Vector3(0, 0, 0);
 
 onMounted(async () => {
   if (!canvasRef.value) return;
@@ -472,28 +575,126 @@ onMounted(async () => {
   await loadAndRenderLayout(scene);
 
   // 9. Register Visual Events for Cargo
-  onVisualEvent((event) => {
-    if (event === 'pick_done') {
-      performPickAnimation(scene!);
-    } else if (event === 'drop_done') {
-      performDropAnimation(scene!);
+  let isPickAnimationRunning = false;
+  let isDropAnimationRunning = false;
+
+  onVisualEvent((event, vehicleId) => {
+    const vState = (vehicleId && fleetVehicles[vehicleId]) ? fleetVehicles[vehicleId] : agvState;
+    const currNodeId = vState.task_info?.current_node;
+
+    if (event === 'pick_start' || event === 'pick_done') {
+      if (!isPickAnimationRunning) {
+        isPickAnimationRunning = true;
+        // Synchronize Station Cargo: AGV picked up cargo from station pallet
+        if (currNodeId) {
+          const stNode = factoryLayout.nodes.find(n => n.id === currNodeId);
+          if (stNode && (stNode.function === 'Pick-up' || stNode.function === 'Drop-off')) {
+            toggleStationCargo(stNode, false);
+          }
+        }
+        performPickAnimation(scene!).finally(() => {
+          setTimeout(() => { isPickAnimationRunning = false; }, 1000);
+        });
+      }
+    } else if (event === 'drop_start' || event === 'drop_done') {
+      if (!isDropAnimationRunning) {
+        isDropAnimationRunning = true;
+        // Synchronize Station Cargo: AGV dropped cargo onto station pallet
+        if (currNodeId) {
+          const stNode = factoryLayout.nodes.find(n => n.id === currNodeId);
+          if (stNode && (stNode.function === 'Pick-up' || stNode.function === 'Drop-off')) {
+            toggleStationCargo(stNode, true);
+          }
+        }
+        performDropAnimation(scene!);
+        setTimeout(() => { isDropAnimationRunning = false; }, 1000);
+      }
     }
   });
 
-  // 10. Watch AGV Position
+  // Watch AGV Task Cargo State to keep static cargo synced
   watch(
-    () => agvState.position,
-    (newPos) => {
-      targetPos.x = newPos.x;
-      targetPos.z = newPos.z !== undefined ? newPos.z : newPos.y;
-      targetTheta = newPos.theta;
+    () => agvState.task_info.has_cargo,
+    (hasCargo) => {
+      if (hasCargo && !cargoMesh && !isPickAnimationRunning && scene) {
+        mountStaticCargo(scene);
+      } else if (!hasCargo && cargoMesh && !isDropAnimationRunning && agvState.task_info.status !== 'ACTING') {
+        cargoMesh.dispose();
+        cargoMesh = null;
+      }
+    },
+    { immediate: true }
+  );
+
+  // 10. Watch All Fleet Vehicles Dynamically
+  watch(
+    () => fleetVehicles,
+    (fleet) => {
+      if (!scene) return;
+      for (const [vId, vData] of Object.entries(fleet)) {
+        let visual = vehicleVisuals.get(vId);
+        if (!visual) {
+          createOrUpdateVehicleVisual(scene, vId, {
+            x: vData.position.x,
+            z: vData.position.z !== undefined ? vData.position.z : vData.position.y,
+            theta: vData.position.theta
+          });
+          visual = vehicleVisuals.get(vId);
+          if (!visual) continue;
+        }
+
+        const isActing = vData.task_info?.status === 'ACTING' || vData.task_info?.action === 'pick' || vData.task_info?.action === 'drop';
+        const currentNodeId = vData.task_info?.current_node;
+        const currentNode = currentNodeId ? factoryLayout.nodes.find(n => n.id === currentNodeId) : null;
+        const isCargoStation = currentNode && (currentNode.function === 'Pick-up' || currentNode.function === 'Drop-off');
+
+        let rawX = vData.position.x;
+        let rawZ = vData.position.z !== undefined ? vData.position.z : vData.position.y;
+        let tTheta = vData.position.theta;
+
+        if (isActing && isCargoStation && currentNode) {
+          // Standoff docking offset: AGV stops in front of pallet so forks slide directly under the pallet!
+          const STANDOFF_DIST = 0.75;
+          visual.targetPos.x = currentNode.x - STANDOFF_DIST * Math.sin(tTheta);
+          visual.targetPos.z = currentNode.z - STANDOFF_DIST * Math.cos(tTheta);
+        } else {
+          visual.targetPos.x = rawX;
+          visual.targetPos.z = rawZ;
+        }
+        visual.targetTheta = tTheta;
+
+        if (visual.trafficWaitMesh) {
+          visual.trafficWaitMesh.isVisible = !!vData.task_info?.is_traffic_wait;
+        }
+
+        if (vId === 'AGV-001' || vId === selectedVehicleId.value) {
+          targetPos.copyFrom(visual.targetPos);
+        }
+      }
     },
     { deep: true, immediate: true }
   );
 
-  // 11. Watch VDA 5050 EdgeStates for Dynamic Path Material Rendering
+  // Watch selectedVehicleId and quick dispatch to update all halos
   watch(
-    () => [agvState.edge_states, agvState.passed_edges],
+    [() => selectedVehicleId.value, () => is3DQuickDispatchActive.value],
+    ([vId, active]) => {
+      for (const [id, visual] of vehicleVisuals.entries()) {
+        if (visual.haloMesh) {
+          visual.haloMesh.isVisible = active && id === vId;
+        }
+      }
+    }
+  );
+
+  // Watch all fleet edge states to keep path tubes illuminated during travel
+  watch(
+    () => [
+      agvState.edge_states, 
+      agvState.passed_edges, 
+      ...Object.values(fleetVehicles).map(v => v.edge_states),
+      ...Object.values(fleetVehicles).map(v => v.passed_edges)
+    ],
     () => {
       updateDynamicPathMaterials();
     },
@@ -546,20 +747,25 @@ onMounted(async () => {
   engine.runRenderLoop(() => {
     if (!scene) return;
 
-    if (agvRoot) {
-      currentPos = BABYLON.Vector3.Lerp(currentPos, targetPos, 0.18);
+    for (const v of vehicleVisuals.values()) {
+      v.currentPos = BABYLON.Vector3.Lerp(v.currentPos, v.targetPos, 0.18);
 
-      let diff = targetTheta - currentTheta;
+      let diff = v.targetTheta - v.currentTheta;
       while (diff < -Math.PI) diff += 2 * Math.PI;
       while (diff > Math.PI) diff -= 2 * Math.PI;
-      currentTheta += diff * 0.18;
+      v.currentTheta += diff * 0.18;
 
-      agvRoot.position.copyFrom(currentPos);
-      agvRoot.rotation.y = currentTheta;
+      v.root.position.copyFrom(v.currentPos);
+      v.root.rotation.y = v.currentTheta;
 
-      if (currentView.value === 'follow' && camera) {
-        camera.target = BABYLON.Vector3.Lerp(camera.target, agvRoot.position, 0.1);
+      if (currentView.value === 'follow' && camera && selectedVehicleId.value === v.id) {
+        camera.target = BABYLON.Vector3.Lerp(camera.target, v.root.position, 0.1);
       }
+    }
+
+    if (agvRoot && vehicleVisuals.has('AGV-001')) {
+      const v1 = vehicleVisuals.get('AGV-001')!;
+      currentPos.copyFrom(v1.currentPos);
     }
 
     scene.render();
@@ -568,6 +774,9 @@ onMounted(async () => {
   // Keyboard shortcut listener (Esc to cancel edge/selection, Del to delete)
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', handleResize);
+  if (canvasRef.value) {
+    canvasRef.value.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
 });
 
 onBeforeUnmount(() => {
@@ -585,8 +794,13 @@ function handleResize() {
 
 function handleKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
+    if (is3DQuickDispatchActive.value) {
+      closeQuickDispatch();
+    }
     cancelEdgeConnection();
+    closeCargoContextMenu();
     selectedEdgeForEdit.value = null;
+    clearNodeSelection();
     gizmoManager?.attachToMesh(null);
   }
 }
@@ -619,21 +833,75 @@ function createFactoryFloor(sc: BABYLON.Scene) {
 // ----------------------------------------------------
 // 3.4 AGV .glb Model Loading & Procedural Mesh Animation
 // ----------------------------------------------------
-async function loadAGVModel(sc: BABYLON.Scene) {
-  agvRoot = new BABYLON.TransformNode('AGV_Root', sc);
-  agvRoot.position.set(0, 0.25, 0);
+const VEHICLE_PALETTES = [
+  { name: 'Cyan', color: new BABYLON.Color3(0.04, 0.75, 0.95), hex: '#06b6d4' },
+  { name: 'Amber', color: new BABYLON.Color3(0.95, 0.55, 0.08), hex: '#f59e0b' },
+  { name: 'Emerald', color: new BABYLON.Color3(0.1, 0.8, 0.45), hex: '#10b981' },
+  { name: 'Violet', color: new BABYLON.Color3(0.65, 0.35, 0.95), hex: '#8b5cf6' },
+];
+
+async function createOrUpdateVehicleVisual(
+  sc: BABYLON.Scene, 
+  vehicleId: string, 
+  initPos?: { x: number; z: number; theta?: number }
+): Promise<VehicleVisual> {
+  let existing = vehicleVisuals.get(vehicleId);
+  if (existing) return existing;
+
+  const idx = vehicleVisuals.size;
+  const palette = VEHICLE_PALETTES[idx % VEHICLE_PALETTES.length];
+
+  const root = new BABYLON.TransformNode(`Vehicle_${vehicleId}_Root`, sc);
+  const px = initPos?.x ?? (idx === 0 ? 0 : 0);
+  const pz = initPos?.z ?? (idx === 0 ? 0 : 10);
+  const pTheta = initPos?.theta ?? Math.PI / 2;
+
+  root.position.set(px, 0, pz);
+  root.rotation.y = pTheta;
+
+  const cPos = new BABYLON.Vector3(px, 0, pz);
+  const tPos = new BABYLON.Vector3(px, 0, pz);
+
+  const visual: VehicleVisual = {
+    id: vehicleId,
+    root,
+    glbRoot: null,
+    cargoMesh: null,
+    haloMesh: null,
+    trafficWaitMesh: null,
+    targetPos: tPos,
+    currentPos: cPos,
+    targetTheta: pTheta,
+    currentTheta: pTheta,
+    liftNode: null,
+    baseLiftPosY: 0,
+    isPickAnimationRunning: false,
+    isDropAnimationRunning: false,
+    color: palette.color,
+  };
+
+  vehicleVisuals.set(vehicleId, visual);
+  if (vehicleId === 'AGV-001' || !agvRoot) {
+    agvRoot = root;
+  }
 
   try {
     const result = await BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'agv.glb', sc);
-    agvGlbRoot = result.meshes[0];
-    agvGlbRoot.parent = agvRoot;
+    const glbRoot = result.meshes[0];
+    glbRoot.parent = root;
+    visual.glbRoot = glbRoot;
 
-    const hierarchy = agvGlbRoot.getHierarchyBoundingVectors();
+    const hierarchy = glbRoot.getHierarchyBoundingVectors();
     const size = hierarchy.max.subtract(hierarchy.min);
     const maxDim = Math.max(size.x, size.y, size.z);
     const scaleFactor = maxDim > 0 ? 1.6 / maxDim : 0.01;
-    agvGlbRoot.scaling.setAll(scaleFactor);
-    agvGlbRoot.position.set(0, 0.05, 0);
+    glbRoot.scaling.setAll(scaleFactor);
+    glbRoot.position.set(0, 0.05, 0);
+    glbRoot.rotation.y = Math.PI;
+
+    const accentMat = new BABYLON.StandardMaterial(`Mat_${vehicleId}`, sc);
+    accentMat.diffuseColor = palette.color;
+    accentMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
 
     const foundNames: string[] = [];
     result.transformNodes.forEach(tn => {
@@ -641,68 +909,143 @@ async function loadAGVModel(sc: BABYLON.Scene) {
     });
     result.meshes.forEach(m => {
       m.isPickable = true;
-      m.metadata = { type: 'agv', id: 'AGV-001' };
+      m.metadata = { type: 'agv', id: vehicleId };
+      if (m.name && (m.name.toLowerCase().includes('body') || m.name.toLowerCase().includes('chassis'))) {
+        m.material = accentMat;
+      }
       if (m.name && !foundNames.includes(m.name)) foundNames.push(m.name);
     });
-    agvNodesList.value = foundNames;
 
-    const agvHitbox = BABYLON.MeshBuilder.CreateBox('AGV_Hitbox', { width: 1.8, height: 1.2, depth: 2.2 }, sc);
-    agvHitbox.parent = agvRoot;
-    agvHitbox.position.y = 0.4;
-    agvHitbox.isPickable = true;
-    agvHitbox.visibility = 0; // Transparent but fully ray-pickable in Babylon.js
-    agvHitbox.metadata = { type: 'agv', id: 'AGV-001' };
-
-    const saved = localStorage.getItem('omnihive_agv_lift_node');
-    if (saved && foundNames.includes(saved)) {
-      selectedLiftNodeName.value = saved;
-    } else {
-      const defaultCandidate = foundNames.find(n => n.includes('001') || n.includes('Fork') || n.includes('Platform')) || foundNames[0] || '';
-      selectedLiftNodeName.value = defaultCandidate;
+    if (vehicleId === 'AGV-001') {
+      agvNodesList.value = foundNames;
     }
 
-    recordBaseLiftPos();
-    console.log('[Babylon] AGV .glb loaded successfully. Detected nodes:', foundNames.length);
+    const hitbox = BABYLON.MeshBuilder.CreateBox(`Hitbox_${vehicleId}`, { width: 1.8, height: 1.2, depth: 2.2 }, sc);
+    hitbox.parent = root;
+    hitbox.position.y = 0.4;
+    hitbox.isPickable = true;
+    hitbox.visibility = 0;
+    hitbox.metadata = { type: 'agv', id: vehicleId };
+
+    const forkNode = result.transformNodes.find(tn => tn.name === 'Object001');
+    if (forkNode) {
+      visual.liftNode = forkNode;
+      visual.baseLiftPosY = 0;
+      if (vehicleId === 'AGV-001') {
+        selectedLiftNodeName.value = 'Object001';
+        baseLiftPosY.value = 0;
+        root.computeWorldMatrix(true);
+        forkNode.computeWorldMatrix(true);
+        const forkBounds = forkNode.getHierarchyBoundingVectors(true);
+        forkRestTopY = forkBounds.min.y - root.position.y + 0.03;
+        forkLiftMeters = GLB_FORK_LIFT_UNITS * scaleFactor;
+      }
+    }
   } catch (err) {
-    console.warn('[Babylon] Failed to load agv.glb, using procedural fallback chassis:', err);
-    createFallbackAGV(sc);
+    console.warn(`[Babylon] Failed to load agv.glb for ${vehicleId}, using fallback:`, err);
+    createFallbackAGV(sc, root, vehicleId);
+  }
+
+  // Halo for vehicle
+  const halo = BABYLON.MeshBuilder.CreateTorus(`Halo_${vehicleId}`, { diameter: 2.2, thickness: 0.05, tessellation: 32 }, sc);
+  halo.parent = root;
+  halo.position.y = 0.03;
+  const haloMat = new BABYLON.StandardMaterial(`HaloMat_${vehicleId}`, sc);
+  haloMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+  haloMat.emissiveColor = palette.color;
+  halo.material = haloMat;
+  halo.isVisible = (selectedVehicleId.value === vehicleId);
+  halo.isPickable = false;
+  visual.haloMesh = halo;
+
+  if (vehicleId === 'AGV-001') {
+    agvHaloMesh = halo;
+  }
+
+  // Traffic Wait Mesh
+  visual.trafficWaitMesh = createTrafficWaitIndicator(sc, root, `TrafficWait_${vehicleId}`);
+
+  return visual;
+}
+
+async function loadAGVModel(sc: BABYLON.Scene) {
+  const ids = Object.keys(fleetVehicles);
+  const initialIds = ids.length > 0 ? ids : ['AGV-001', 'AGV-002'];
+
+  for (const id of initialIds) {
+    const v = fleetVehicles[id];
+    const pos = v?.position ? {
+      x: v.position.x,
+      z: v.position.z !== undefined ? v.position.z : v.position.y,
+      theta: v.position.theta
+    } : (id === 'AGV-002' ? { x: 0, z: 10, theta: Math.PI / 2 } : { x: 0, z: 0, theta: Math.PI / 2 });
+
+    await createOrUpdateVehicleVisual(sc, id, pos);
   }
 
   createAGVBeacon(sc);
-  createAGVSelectionHalo(sc);
 }
 
-function recordBaseLiftPos() {
-  if (!scene || !selectedLiftNodeName.value) return;
-  const node = scene.getNodeByName(selectedLiftNodeName.value) as BABYLON.TransformNode | BABYLON.Mesh;
-  if (node && 'position' in node) {
-    baseLiftPosY.value = node.position.y;
-  }
+function createTrafficWaitIndicator(sc: BABYLON.Scene, parentRoot: BABYLON.TransformNode, name: string): BABYLON.Mesh {
+  const waitMesh = BABYLON.MeshBuilder.CreateCylinder(name, {
+    diameter: 0.55,
+    height: 0.08,
+    tessellation: 24
+  }, sc);
+  waitMesh.parent = parentRoot;
+  waitMesh.position.set(0, 1.6, 0);
+  const mat = new BABYLON.StandardMaterial(`${name}_Mat`, sc);
+  mat.diffuseColor = new BABYLON.Color3(0.95, 0.15, 0.15);
+  mat.emissiveColor = new BABYLON.Color3(1.0, 0.2, 0.2);
+  waitMesh.material = mat;
+  waitMesh.isVisible = false;
+  waitMesh.isPickable = false;
+  return waitMesh;
 }
 
-function createFallbackAGV(sc: BABYLON.Scene) {
-  if (!agvRoot) return;
-  const chassis = BABYLON.MeshBuilder.CreateBox('AGV_Chassis', { width: 1.2, height: 0.38, depth: 1.6 }, sc);
-  chassis.parent = agvRoot;
-  chassis.position.y = 0.15;
+function createFallbackAGV(sc: BABYLON.Scene, parentRoot: BABYLON.TransformNode = agvRoot!, vehId: string = 'AGV-001') {
+  if (!parentRoot) return;
+  // Main chassis (body at rear)
+  const chassis = BABYLON.MeshBuilder.CreateBox(`AGV_Chassis_${vehId}`, { width: 0.9, height: 0.45, depth: 1.1 }, sc);
+  chassis.parent = parentRoot;
+  chassis.position.set(0, 0.225, -0.2);
   chassis.isPickable = true;
-  chassis.metadata = { type: 'agv', id: 'AGV-001' };
-  const chassisMat = new BABYLON.StandardMaterial('AGV_ChassisMat', sc);
+  chassis.metadata = { type: 'agv', id: vehId };
+  const chassisMat = new BABYLON.StandardMaterial(`AGV_ChassisMat_${vehId}`, sc);
   chassisMat.diffuseColor = new BABYLON.Color3(0.15, 0.17, 0.22);
   chassis.material = chassisMat;
 
-  const platform = BABYLON.MeshBuilder.CreateCylinder('AGV_Platform', { diameter: 1.05, height: 0.08, tessellation: 32 }, sc);
-  platform.parent = agvRoot;
-  platform.position.y = 0.38;
-  platform.isPickable = true;
-  platform.metadata = { type: 'agv', id: 'AGV-001' };
-  const platMat = new BABYLON.StandardMaterial('PlatMat', sc);
-  platMat.diffuseColor = new BABYLON.Color3(0.9, 0.65, 0.08);
-  platform.material = platMat;
+  // Mast vertical columns
+  const mast = BABYLON.MeshBuilder.CreateBox(`AGV_Mast_${vehId}`, { width: 0.5, height: 1.2, depth: 0.08 }, sc);
+  mast.parent = parentRoot;
+  mast.position.set(0, 0.6, 0.35);
+  mast.material = chassisMat;
 
-  agvNodesList.value = ['AGV_Platform', 'AGV_Chassis'];
-  selectedLiftNodeName.value = 'AGV_Platform';
-  baseLiftPosY.value = 0.38;
+  // Fork Carriage Root
+  const forkCarriage = new BABYLON.TransformNode(`AGV_ForkCarriage_${vehId}`, sc);
+  forkCarriage.parent = parentRoot;
+  forkCarriage.position.set(0, 0.08, 0.4);
+
+  // Left & right fork tines (牙叉)
+  const forkMat = new BABYLON.StandardMaterial(`AGV_ForkMat_${vehId}`, sc);
+  forkMat.diffuseColor = new BABYLON.Color3(0.92, 0.72, 0.1); // Industrial safety yellow forks
+  forkMat.emissiveColor = new BABYLON.Color3(0.15, 0.12, 0.02);
+
+  const forkL = BABYLON.MeshBuilder.CreateBox(`Fork_Left_${vehId}`, { width: 0.09, height: 0.04, depth: 0.6 }, sc);
+  forkL.parent = forkCarriage;
+  forkL.position.set(-0.16, 0, 0.3);
+  forkL.material = forkMat;
+
+  const forkR = BABYLON.MeshBuilder.CreateBox('Fork_Right', { width: 0.09, height: 0.04, depth: 0.6 }, sc);
+  forkR.parent = forkCarriage;
+  forkR.position.set(0.16, 0, 0.3);
+  forkR.material = forkMat;
+
+  agvNodesList.value = ['AGV_ForkCarriage', 'AGV_Chassis'];
+  selectedLiftNodeName.value = 'AGV_ForkCarriage';
+  baseLiftPosY.value = 0.08;
+  forkRestTopY = 0.10;   // 程序化牙叉: carriage 0.08 + 半厚 0.02
+  forkLiftMeters = 0.30;
   createAGVSelectionHalo(sc);
 }
 
@@ -746,78 +1089,157 @@ function createAGVBeacon(sc: BABYLON.Scene) {
 }
 
 // ----------------------------------------------------
-// 3.4 Pick & Drop Procedural Animation
+// 3.4 Pick & Drop Dynamic Cargo Animation (using guess_box.glb on Forklift Tines)
 // ----------------------------------------------------
-function performPickAnimation(sc: BABYLON.Scene) {
-  if (!agvRoot) return;
+// NOTE: guess_box.glb 的實際階層尺寸約 218 單位 (Sketchfab FBX 匯出帶 100x 節點縮放),
+// 不能用固定 scaling 值，必須以 getHierarchyBoundingVectors() 量測後正規化到目標尺寸。
+// 【修改貨箱尺寸】：修改 CARGO_SIZE 數值即可 (單位為公尺)。
+// 原為 0.35 (35cm)，依需求縮小 90% (剩餘 10%) 即為 0.035 (3.5cm)。若需其他尺寸可直接填入 (例: 0.15 = 15cm)。
+const CARGO_SIZE = 0.65;           // 貨箱最終邊長 (公尺)
+const CARGO_HALF = CARGO_SIZE / 2;
+const FORK_FRONT_Z = 0.7;           // 牙叉中心在車體座標的前方偏移
+const GLB_FORK_LIFT_UNITS = 48;     // agv.glb 牙叉節點 (Object001) 在模型原始單位下的抬升量
 
-  if (cargoMesh) cargoMesh.dispose();
-  cargoMesh = BABYLON.MeshBuilder.CreateBox('CargoBox', { width: 0.72, height: 0.55, depth: 0.72 }, sc);
-  const cargoMat = new BABYLON.StandardMaterial('CargoMat', sc);
-  cargoMat.diffuseColor = new BABYLON.Color3(0.94, 0.52, 0.1);
-  cargoMat.emissiveColor = new BABYLON.Color3(0.2, 0.1, 0.02);
-  cargoMesh.material = cargoMat;
+// 由 loadAGVModel / createFallbackAGV 依實際模型量測後填入 (AGV 本地座標, 公尺)
+let forkRestTopY = 0.10;            // 牙叉放下時的上緣高度
+let forkLiftMeters = 0.28;          // 牙叉抬升高度
 
-  const liftNode = (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh;
-  const attachParent = liftNode || agvRoot;
+const cargoGroundY = () => CARGO_HALF;                                   // 貨箱貼地時中心高度
+const cargoElevatedY = () => forkRestTopY + forkLiftMeters + CARGO_HALF;  // 貨箱置於抬升牙叉上的中心高度
 
-  cargoMesh.parent = attachParent;
-  cargoMesh.position.set(0, 0.55, 0);
+function getForkLiftTargetY(liftNode: BABYLON.TransformNode | BABYLON.Mesh): number {
+  return liftNode.name === 'Object001'
+    ? baseLiftPosY.value + GLB_FORK_LIFT_UNITS
+    : baseLiftPosY.value + forkLiftMeters;
+}
 
-  if (liftNode && 'position' in liftNode) {
-    const startY = baseLiftPosY.value;
-    BABYLON.Animation.CreateAndStartAnimation(
-      'liftPickAnim',
-      liftNode,
-      'position.y',
-      30,
-      20,
-      startY,
-      startY + 0.15,
-      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-    );
+/** 載入 guess_box.glb 並依階層包圍盒正規化為 CARGO_SIZE 邊長、中心置於原點 */
+async function loadNormalizedCargo(sc: BABYLON.Scene): Promise<BABYLON.AbstractMesh> {
+  try {
+    const result = await BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'guess_box.glb', sc);
+    const boxRoot = result.meshes[0];
+    boxRoot.name = 'CargoBox_Guess';
+
+    // 必須在掛到 AGV 之前量測，避免父節點轉換影響包圍盒
+    const bounds = boxRoot.getHierarchyBoundingVectors(true);
+    const size = bounds.max.subtract(bounds.min);
+    const maxDim = Math.max(size.x, size.y, size.z, 1e-3);
+    const s = CARGO_SIZE / maxDim;
+    boxRoot.scaling.scaleInPlace(s);
+
+    // 修正模型原點偏移，讓貨箱幾何中心位於 root 原點
+    const center = bounds.min.add(bounds.max).scale(0.5 * s);
+    boxRoot.position.subtractInPlace(center);
+
+    for (const m of result.meshes) m.isPickable = false;
+    return boxRoot;
+  } catch (err) {
+    console.warn('[Cargo] guess_box.glb 載入失敗，改用程序化貨箱:', err);
+    const fallback = BABYLON.MeshBuilder.CreateBox('CargoBox', { size: CARGO_SIZE }, sc);
+    const cargoMat = new BABYLON.StandardMaterial('CargoMat', sc);
+    cargoMat.diffuseColor = new BABYLON.Color3(0.94, 0.52, 0.1);
+    fallback.material = cargoMat;
+    fallback.isPickable = false;
+    return fallback;
   }
 }
 
-function performDropAnimation(sc: BABYLON.Scene) {
-  const liftNode = (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh;
+/** 包一層 TransformNode，讓正規化偏移與動畫位置互不干擾 */
+async function createCargoHolder(sc: BABYLON.Scene, y: number): Promise<BABYLON.TransformNode> {
+  const holder = new BABYLON.TransformNode('CargoHolder', sc);
+  const box = await loadNormalizedCargo(sc);
+  box.parent = holder;
+  holder.parent = agvRoot;
+  holder.position.set(0, y, FORK_FRONT_Z);
+  return holder;
+}
 
+async function mountStaticCargo(sc: BABYLON.Scene) {
+  if (!agvRoot || cargoMesh) return;
+  const liftNode = (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
+
+  cargoMesh = await createCargoHolder(sc, cargoElevatedY());
+
+  // 已載貨狀態：牙叉保持抬升
   if (liftNode && 'position' in liftNode) {
-    const startY = liftNode.position.y;
+    liftNode.position.y = getForkLiftTargetY(liftNode);
+  }
+}
+
+async function performPickAnimation(sc: BABYLON.Scene) {
+  if (!agvRoot) return;
+
+  if (cargoMesh) {
+    cargoMesh.dispose();
+    cargoMesh = null;
+  }
+
+  const liftNode = (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
+
+  // 牙叉先回到最低點
+  if (liftNode && 'position' in liftNode) {
+    liftNode.position.y = baseLiftPosY.value;
+  }
+
+  // 貨箱從站點地面開始
+  const holder = await createCargoHolder(sc, cargoGroundY());
+  cargoMesh = holder;
+
+  const ease = new BABYLON.CubicEase();
+  ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+
+  // 牙叉上升 (取貨)
+  if (liftNode && 'position' in liftNode) {
     BABYLON.Animation.CreateAndStartAnimation(
-      'liftDropAnim',
-      liftNode,
-      'position.y',
-      30,
-      20,
-      startY,
-      baseLiftPosY.value,
-      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+      'forkPickAnim', liftNode, 'position.y', 30, 35,
+      baseLiftPosY.value, getForkLiftTargetY(liftNode),
+      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease
+    );
+  }
+
+  // 貨箱隨牙叉被托起
+  BABYLON.Animation.CreateAndStartAnimation(
+    'boxPickAnim', holder, 'position.y', 30, 35,
+    cargoGroundY(), cargoElevatedY(),
+    BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease
+  );
+}
+
+function performDropAnimation(sc: BABYLON.Scene) {
+  const liftNode = (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
+
+  const ease = new BABYLON.CubicEase();
+  ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+
+  // 牙叉下降 (放貨)
+  if (liftNode && 'position' in liftNode) {
+    BABYLON.Animation.CreateAndStartAnimation(
+      'forkDropAnim', liftNode, 'position.y', 30, 35,
+      liftNode.position.y, baseLiftPosY.value,
+      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease
     );
   }
 
   if (!cargoMesh) return;
-  const worldPos = cargoMesh.getAbsolutePosition().clone();
-  cargoMesh.parent = null;
-  cargoMesh.position.copyFrom(worldPos);
+  const holder = cargoMesh;
+  cargoMesh = null;
 
-  const curY = cargoMesh.position.y;
+  // 貨箱隨牙叉降到地面
   BABYLON.Animation.CreateAndStartAnimation(
-    'cargoUnload',
-    cargoMesh,
-    'position.y',
-    30,
-    20,
-    curY,
-    0.35,
-    BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+    'cargoLowerToGround', holder, 'position.y', 30, 35,
+    holder.position.y, cargoGroundY(),
+    BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease
   );
 
+  // 降到地面後脫離 AGV，留在站點上 (保留世界座標與朝向)
   setTimeout(() => {
-    if (cargoMesh) {
-      cargoMesh.dispose();
-      cargoMesh = null;
-    }
+    if (holder.isDisposed()) return;
+    holder.setParent(null);
+    holder.position.y = cargoGroundY();
+
+    setTimeout(() => {
+      if (!holder.isDisposed()) holder.dispose();
+    }, 10000);
   }, 1200);
 }
 
@@ -833,12 +1255,13 @@ function rebuildLayoutInScene(sc: BABYLON.Scene) {
   nodeMeshesMap.forEach(m => m.dispose());
   nodeMeshesMap.clear();
 
-  nodeLabelsMap.forEach(m => {
-    if (m.material) m.material.dispose();
-    m.dispose();
-  });
-  nodeLabelsMap.clear();
-  currentlyActiveLabelNodeId.value = null;
+  stationPalletMap.forEach(m => m.dispose());
+  stationPalletMap.clear();
+
+  stationCargoMap.forEach(m => m.dispose());
+  stationCargoMap.clear();
+
+
 
   edgeMeshesMap.forEach(m => m.dispose());
   edgeMeshesMap.clear();
@@ -853,6 +1276,14 @@ function rebuildLayoutInScene(sc: BABYLON.Scene) {
     createNodeInScene(sc, node);
   });
 
+  // Ensure at most one edge exists between any two nodes (prevent duplicates/overlap)
+  const edgePairMap = new Map<string, LayoutEdge>();
+  for (const edge of factoryLayout.edges) {
+    const pairKey = [edge.startNodeId, edge.endNodeId].sort().join('---');
+    edgePairMap.set(pairKey, edge);
+  }
+  factoryLayout.edges = Array.from(edgePairMap.values());
+
   factoryLayout.edges.forEach(edge => {
     createEdgeInScene(sc, edge);
   });
@@ -866,21 +1297,40 @@ function rebuildLayoutInScene(sc: BABYLON.Scene) {
 
 function getNodeColor(func: string): BABYLON.Color3 {
   switch (func) {
-    case 'Idle/Charge': return new BABYLON.Color3(0.06, 0.75, 1.0); // Cyan
-    case 'Transit': return new BABYLON.Color3(0.39, 0.4, 0.95); // Indigo
-    case 'Pick-up': return new BABYLON.Color3(0.96, 0.62, 0.04); // Amber
-    case 'Drop-off': return new BABYLON.Color3(0.06, 0.73, 0.51); // Emerald
+    case 'Idle/Charge':
+    case 'Charge': return new BABYLON.Color3(0.06, 0.75, 1.0); // Cyan
+    case 'Transit': return new BABYLON.Color3(0.24, 0.55, 0.98); // Blue
+    case 'Wait': return new BABYLON.Color3(0.96, 0.62, 0.04); // Amber
+    case 'Cargo': return new BABYLON.Color3(0.96, 0.62, 0.04); // Amber
+    case 'Pick-up': return new BABYLON.Color3(0.06, 0.73, 0.51); // Emerald (legacy)
+    case 'Drop-off': return new BABYLON.Color3(0.66, 0.33, 0.97); // Purple (legacy)
     default: return new BABYLON.Color3(0.5, 0.5, 0.6);
   }
 }
 
 function getNodeFunctionLabel(func: string): string {
   switch (func) {
-    case 'Idle/Charge': return '充電待機站';
-    case 'Transit': return '通行導引站';
-    case 'Pick-up': return '取貨作業站';
-    case 'Drop-off': return '卸貨作業站';
+    case 'Idle/Charge':
+    case 'Charge': return '充電站';
+    case 'Transit': return '通道點';
+    case 'Wait': return '等待點';
+    case 'Cargo':
+    case 'Pick-up':
+    case 'Drop-off': return '貨物站';
     default: return func || '一般站點';
+  }
+}
+
+function getNodeTypeDefaultDesc(func: string): string {
+  switch (func) {
+    case 'Idle/Charge':
+    case 'Charge': return 'AGV 自動充電樁';
+    case 'Transit': return '導航通道點（純移動不停留）';
+    case 'Wait': return '原地等待避車點（停留待命）';
+    case 'Cargo':
+    case 'Pick-up':
+    case 'Drop-off': return '棧板取放貨物站點';
+    default: return '場域編輯自訂站點';
   }
 }
 
@@ -897,30 +1347,177 @@ function getNodeNameOnly(id: string): string {
   return n ? n.name : id;
 }
 
-function showNodeLabel(nodeId: string) {
-  nodeLabelsMap.forEach((mesh, id) => {
-    mesh.isVisible = (id === nodeId);
-  });
-  currentlyActiveLabelNodeId.value = nodeId;
+function getNodeObj(nodeId: string): LayoutNode | undefined {
+  return factoryLayout.nodes.find(n => n.id === nodeId);
 }
 
-function hideAllNodeLabels() {
-  nodeLabelsMap.forEach(mesh => {
-    mesh.isVisible = false;
-  });
-  currentlyActiveLabelNodeId.value = null;
+function isCargoNode(nodeId: string): boolean {
+  const n = getNodeObj(nodeId);
+  return !!n && (n.function === 'Cargo' || n.function === 'Pick-up' || n.function === 'Drop-off');
+}
+
+/**
+ * 檢查給定座標 (x, z) 是否與現有物件（其他節點、物件）距離過近產生重疊
+ */
+function checkObjectClearanceCollision(
+  x: number, 
+  z: number, 
+  excludeId?: string, 
+  minDistance: number = MIN_CLEARANCE_DIST,
+  isChargingStationProp: boolean = false
+): { hasCollision: boolean; conflictingWith?: string; distance?: number } {
+  const isTargetChargingNode = factoryLayout.nodes.find(n => n.id === excludeId)?.function === 'Idle/Charge';
+
+  for (const n of factoryLayout.nodes) {
+    if (n.id === excludeId) continue;
+    const dist = Math.hypot(x - n.x, z - n.z);
+    // If testing a charging station prop near an Idle/Charge station node, allow it to stand beside it (threshold 0.35m)
+    const threshold = (isChargingStationProp && n.function === 'Idle/Charge') ? 0.35 : minDistance;
+    if (dist < threshold) {
+      return { hasCollision: true, conflictingWith: `站點 ${n.id} (${n.name})`, distance: dist };
+    }
+  }
+
+  for (const p of factoryLayout.props) {
+    if (p.id === excludeId) continue;
+    const dist = Math.hypot(x - p.x, z - p.z);
+    // If an Idle/Charge node is near a charging station prop, allow it (threshold 0.35m)
+    const isPCharging = (p.modelType === 'charging_station' || p.modelType === 'pillar');
+    const threshold = (isTargetChargingNode && isPCharging) ? 0.35 : minDistance;
+    if (dist < threshold) {
+      const typeName = isPCharging ? '充電樁' : (p.modelType === 'pallet' ? '棧板' : '貨架');
+      return { hasCollision: true, conflictingWith: `${typeName} ${p.id}`, distance: dist };
+    }
+  }
+
+  return { hasCollision: false };
+}
+
+/**
+ * 切換貨物站點的棧板載貨狀態 (有貨 / 無貨)
+ */
+async function toggleStationCargo(node: LayoutNode, forceState?: boolean) {
+  if (!node || !isCargoNode(node.id)) return;
+  const newState = forceState !== undefined ? forceState : !node.has_cargo;
+  node.has_cargo = newState;
+
+  const existingCargo = stationCargoMap.get(node.id);
+  if (newState) {
+    if (!existingCargo && scene) {
+      const boxMesh = await loadNormalizedCargo(scene);
+      boxMesh.name = `StationCargo_${node.id}`;
+      boxMesh.position.set(node.x, 0.14 + CARGO_HALF, node.z);
+      boxMesh.isPickable = false;
+      stationCargoMap.set(node.id, boxMesh);
+    }
+  } else {
+    if (existingCargo) {
+      existingCargo.dispose();
+      stationCargoMap.delete(node.id);
+    }
+  }
+  markLayoutDirty();
+  emit('notify', `${node.name || node.id}: 已設為「${node.has_cargo ? '有貨' : '無貨'}」`, 'info');
+}
+
+function deleteSelectedNode() {
+  if (!selectedNodeForEdit.value) return;
+  const nodeId = selectedNodeForEdit.value.id;
+  factoryLayout.nodes = factoryLayout.nodes.filter(n => n.id !== nodeId);
+  factoryLayout.edges = factoryLayout.edges.filter(e => e.startNodeId !== nodeId && e.endNodeId !== nodeId);
+
+  const mesh = nodeMeshesMap.get(nodeId);
+  if (mesh) {
+    mesh.dispose();
+    nodeMeshesMap.delete(nodeId);
+  }
+  const pallet = stationPalletMap.get(nodeId);
+  if (pallet) {
+    pallet.dispose();
+    stationPalletMap.delete(nodeId);
+  }
+  const cargo = stationCargoMap.get(nodeId);
+  if (cargo) {
+    cargo.dispose();
+    stationCargoMap.delete(nodeId);
+  }
+
+  rebuildEdgesOnly(scene!);
+  selectedNodeForEdit.value = null;
+  clearNodeSelection();
+  markLayoutDirty();
+  emit('notify', `已刪除站點: ${nodeId}`, 'info');
+}
+
+function handleNodeFunctionChange(node: LayoutNode) {
+  if (!scene) return;
+  const oldPad = nodeMeshesMap.get(node.id);
+  if (oldPad) {
+    oldPad.dispose();
+    nodeMeshesMap.delete(node.id);
+  }
+  const oldPallet = stationPalletMap.get(node.id);
+  if (oldPallet) {
+    oldPallet.dispose();
+    stationPalletMap.delete(node.id);
+  }
+  const oldCargo = stationCargoMap.get(node.id);
+  if (oldCargo) {
+    oldCargo.dispose();
+    stationCargoMap.delete(node.id);
+  }
+
+  if (node.function === 'Pick-up' && node.has_cargo === undefined) {
+    node.has_cargo = true;
+  }
+  if (node.function === 'Drop-off' && node.has_cargo === undefined) {
+    node.has_cargo = false;
+  }
+
+  if (node.function === 'Idle/Charge') {
+    const hasNearbyStation = factoryLayout.props.some(p => 
+      (p.modelType === 'charging_station' || p.modelType === 'pillar') && 
+      Math.hypot(p.x - node.x, p.z - node.z) < 2.0
+    );
+    if (!hasNearbyStation) {
+      const candX = Math.round((node.x - 1.2) * 10) / 10;
+      const candZ = Math.round(node.z * 10) / 10;
+      const coll = checkObjectClearanceCollision(candX, candZ, undefined, MIN_CLEARANCE_DIST);
+      if (!coll.hasCollision) {
+        const nextId = `Station-Charge-${String(factoryLayout.props.length + 1).padStart(2, '0')}`;
+        const newStationProp: LayoutProp = {
+          id: nextId,
+          modelType: 'charging_station',
+          x: candX,
+          y: 0,
+          z: candZ,
+          rotationY: 0,
+          scale: 1.0
+        };
+        factoryLayout.props.push(newStationProp);
+        createPropInScene(scene, newStationProp);
+        emit('notify', `已自動於充電站旁生成充電樁 (${nextId})，可選取後使用 Gizmo 旋轉平面角度或移動`, 'success');
+      }
+    }
+  }
+
+  createNodeInScene(scene, node);
+  markLayoutDirty();
+  emit('notify', `站點 ${node.id} 功能已變更為: ${getNodeFunctionLabel(node.function)}`, 'info');
 }
 
 function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
   const color = getNodeColor(node.function);
+  const isCargoStation = isCargoNode(node.id);
+  const padY = isCargoStation ? 0.15 : 0.04;
 
-  // Compact, high-precision station disc (diameter 0.55m, height 0.03m)
+  // Compact, high-precision station disc
   const pad = BABYLON.MeshBuilder.CreateCylinder(`Pad_${node.id}`, {
     diameter: 0.55,
     height: 0.03,
     tessellation: 32
   }, sc);
-  pad.position.set(node.x, 0.04, node.z);
+  pad.position.set(node.x, padY, node.z);
   pad.metadata = { type: 'node', id: node.id };
   pad.isPickable = true;
 
@@ -929,7 +1526,7 @@ function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
   padMat.emissiveColor = color.scale(0.75);
   pad.material = padMat;
 
-  // Thin outer highlight ring (diameter 0.65m)
+  // Outer highlight ring
   const ring = BABYLON.MeshBuilder.CreateTorus(`Ring_${node.id}`, {
     diameter: 0.65,
     thickness: 0.02,
@@ -940,7 +1537,71 @@ function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
   ring.material = padMat;
   ring.isPickable = false;
 
-  createNodeLabel(sc, pad, node);
+  // If Pick-up / Drop-off: Plastic pallet underneath + Cargo if has_cargo
+  if (isCargoStation) {
+    BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'plastic_pallet.glb', sc).then(result => {
+      const palletRoot = result.meshes[0];
+      palletRoot.name = `StationPallet_${node.id}`;
+      palletRoot.metadata = { type: 'station_pallet', nodeId: node.id };
+      for (const m of result.meshes) {
+        m.metadata = { type: 'station_pallet', nodeId: node.id };
+        m.isPickable = true;
+      }
+      const bounds = palletRoot.getHierarchyBoundingVectors(true);
+      const maxHoriz = Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 0.1);
+      const s = 1.2 / maxHoriz;
+      palletRoot.scaling.setAll(s);
+
+      const updatedBounds = palletRoot.getHierarchyBoundingVectors(true);
+      palletRoot.position.set(node.x, -updatedBounds.min.y, node.z);
+      stationPalletMap.set(node.id, palletRoot);
+    }).catch(err => {
+      console.warn('Fallback procedural pallet:', err);
+      const box = BABYLON.MeshBuilder.CreateBox(`StationPallet_${node.id}`, { width: 1.2, height: 0.14, depth: 1.0 }, sc);
+      box.position.set(node.x, 0.07, node.z);
+      const mat = new BABYLON.StandardMaterial('PalletMat', sc);
+      mat.diffuseColor = new BABYLON.Color3(0.12, 0.28, 0.48);
+      box.material = mat;
+      box.metadata = { type: 'station_pallet', nodeId: node.id };
+      box.isPickable = true;
+      stationPalletMap.set(node.id, box);
+    });
+
+    if (node.has_cargo) {
+      loadNormalizedCargo(sc).then(boxMesh => {
+        boxMesh.name = `StationCargo_${node.id}`;
+        boxMesh.metadata = { type: 'station_cargo', nodeId: node.id };
+        boxMesh.position.set(node.x, 0.14 + CARGO_HALF, node.z);
+        boxMesh.isPickable = true;
+        stationCargoMap.set(node.id, boxMesh);
+      });
+    }
+  } else if (node.function === 'Idle/Charge' || node.function === 'Charge') {
+    // Charging station dual chevron ground rails
+    const cr = 0.42;
+    const y = 0.005;
+    const chargeLines: BABYLON.Vector3[][] = [
+      [new BABYLON.Vector3(-cr, y, -0.2), new BABYLON.Vector3(-cr, y, 0.2)],
+      [new BABYLON.Vector3(cr, y, -0.2), new BABYLON.Vector3(cr, y, 0.2)],
+      [new BABYLON.Vector3(-0.15, y, -0.1), new BABYLON.Vector3(0, y, 0.1), new BABYLON.Vector3(0.15, y, -0.1)]
+    ];
+    const chargeMesh = BABYLON.MeshBuilder.CreateLineSystem(`ChargeMarking_${node.id}`, { lines: chargeLines }, sc);
+    chargeMesh.parent = pad;
+    chargeMesh.color = new BABYLON.Color3(0.06, 0.75, 1.0);
+    chargeMesh.isPickable = false;
+  } else if (node.function === 'Wait') {
+    // Wait / Buffer station glowing amber floor markings
+    const wr = 0.35;
+    const y = 0.005;
+    const waitLines: BABYLON.Vector3[][] = [
+      [new BABYLON.Vector3(-wr, y, -wr), new BABYLON.Vector3(wr, y, -wr), new BABYLON.Vector3(wr, y, wr), new BABYLON.Vector3(-wr, y, wr), new BABYLON.Vector3(-wr, y, -wr)],
+      [new BABYLON.Vector3(-0.18, y, 0), new BABYLON.Vector3(0.18, y, 0)]
+    ];
+    const waitMesh = BABYLON.MeshBuilder.CreateLineSystem(`WaitMarking_${node.id}`, { lines: waitLines }, sc);
+    waitMesh.parent = pad;
+    waitMesh.color = new BABYLON.Color3(0.96, 0.62, 0.04);
+    waitMesh.isPickable = false;
+  }
 
   // Direct 2D floor planar drag behavior without directional arrows
   const dragBehavior = new BABYLON.PointerDragBehavior({
@@ -949,27 +1610,96 @@ function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
   dragBehavior.useObjectOrientationForDragging = false;
   dragBehavior.enabled = (currentAppMode.value === 'edit' && currentEditorTool.value === 'select');
 
+  let dragStartPos = { x: node.x, z: node.z };
+
+  dragBehavior.onDragStartObservable.add(() => {
+    dragStartPos = { x: node.x, z: node.z };
+  });
+
   dragBehavior.onDragObservable.add(() => {
-    pad.position.y = 0.04;
+    pad.position.y = isCargoNode(node.id) ? 0.15 : 0.04;
+    const pallet = stationPalletMap.get(node.id);
+    if (pallet) {
+      pallet.position.x = pad.position.x;
+      pallet.position.z = pad.position.z;
+    }
+    const cargo = stationCargoMap.get(node.id);
+    if (cargo) {
+      cargo.position.x = pad.position.x;
+      cargo.position.z = pad.position.z;
+    }
     const n = factoryLayout.nodes.find(item => item.id === node.id);
     if (n) {
+      const dx = pad.position.x - n.x;
+      const dz = pad.position.z - n.z;
       n.x = pad.position.x;
       n.z = pad.position.z;
       updateEdgesForNode(sc, node.id);
+
+      // If this is a charging station node, move any nearby charging station prop along with it
+      if (node.function === 'Idle/Charge') {
+        const chargingProp = factoryLayout.props.find(p => (p.modelType === 'charging_station' || p.modelType === 'pillar') && Math.hypot(p.x - dragStartPos.x, p.z - dragStartPos.z) < 2.5);
+        if (chargingProp) {
+          chargingProp.x += dx;
+          chargingProp.z += dz;
+          const propMesh = propMeshesMap.get(chargingProp.id);
+          if (propMesh) {
+            propMesh.position.x = chargingProp.x;
+            propMesh.position.z = chargingProp.z;
+          }
+        }
+      }
     }
   });
 
   dragBehavior.onDragEndObservable.add(() => {
-    pad.position.y = 0.04;
+    const candidateX = Math.round(pad.position.x * 100) / 100;
+    const candidateZ = Math.round(pad.position.z * 100) / 100;
+
+    // Requirement 3: Real-world non-overlapping collision check!
+    const collision = checkObjectClearanceCollision(candidateX, candidateZ, node.id, MIN_CLEARANCE_DIST);
     const n = factoryLayout.nodes.find(item => item.id === node.id);
-    if (n) {
-      n.x = Math.round(pad.position.x * 100) / 100;
-      n.z = Math.round(pad.position.z * 100) / 100;
+
+    if (collision.hasCollision && n) {
+      // Revert to drag start position!
+      const revDx = dragStartPos.x - n.x;
+      const revDz = dragStartPos.z - n.z;
+      n.x = dragStartPos.x;
+      n.z = dragStartPos.z;
+      pad.position.x = dragStartPos.x;
+      pad.position.z = dragStartPos.z;
+      pad.position.y = isCargoNode(node.id) ? 0.15 : 0.04;
+      const pallet = stationPalletMap.get(node.id);
+      if (pallet) { pallet.position.x = dragStartPos.x; pallet.position.z = dragStartPos.z; }
+      const cargo = stationCargoMap.get(node.id);
+      if (cargo) { cargo.position.x = dragStartPos.x; cargo.position.z = dragStartPos.z; }
+      if (node.function === 'Idle/Charge') {
+        const chargingProp = factoryLayout.props.find(p => (p.modelType === 'charging_station' || p.modelType === 'pillar') && Math.hypot(p.x - dragStartPos.x, p.z - dragStartPos.z) < 3.5);
+        if (chargingProp) {
+          chargingProp.x += revDx;
+          chargingProp.z += revDz;
+          const propMesh = propMeshesMap.get(chargingProp.id);
+          if (propMesh) {
+            propMesh.position.x = chargingProp.x;
+            propMesh.position.z = chargingProp.z;
+          }
+        }
+      }
+      updateEdgesForNode(sc, node.id);
+      emit('notify', `⚠️ 物件重疊衝突：與 ${collision.conflictingWith} 間距過近 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，已自動復原至安全間距！`, 'warn');
+    } else if (n) {
+      n.x = candidateX;
+      n.z = candidateZ;
       pad.position.x = n.x;
       pad.position.z = n.z;
+      pad.position.y = isCargoNode(node.id) ? 0.15 : 0.04;
+      const pallet = stationPalletMap.get(node.id);
+      if (pallet) { pallet.position.x = n.x; pallet.position.z = n.z; }
+      const cargo = stationCargoMap.get(node.id);
+      if (cargo) { cargo.position.x = n.x; cargo.position.z = n.z; }
       updateEdgesForNode(sc, node.id);
+      markLayoutDirty();
     }
-    markLayoutDirty();
   });
 
   pad.addBehavior(dragBehavior);
@@ -1003,42 +1733,7 @@ function updateEdgesForNode(sc: BABYLON.Scene, nodeId: string) {
   updateDynamicPathMaterials();
 }
 
-function createNodeLabel(sc: BABYLON.Scene, parent: BABYLON.Mesh, node: LayoutNode) {
-  // Item 4: Floating badge with Station ID, Name and Purpose (用途)
-  const dynamicTexture = new BABYLON.DynamicTexture(`Text_${node.id}`, { width: 360, height: 120 }, sc, false);
-  dynamicTexture.hasAlpha = true;
-  const ctx = dynamicTexture.getContext() as any;
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
-  if (ctx.roundRect) ctx.roundRect(6, 6, 348, 108, 14);
-  else ctx.rect(6, 6, 348, 108);
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = `#${getNodeColor(node.function).toHexString().substring(1)}`;
-  ctx.stroke();
 
-  // Line 1: Station ID + Name
-  dynamicTexture.drawText(`${node.id} · ${node.name}`, 20, 44, 'bold 24px -apple-system, sans-serif', '#ffffff', 'transparent', true);
-  // Line 2: Purpose / Function
-  const funcDesc = `用途: ${getNodeFunctionLabel(node.function)}`;
-  dynamicTexture.drawText(funcDesc, 20, 86, '600 20px -apple-system, sans-serif', '#38bdf8', 'transparent', true);
-
-  const plane = BABYLON.MeshBuilder.CreatePlane(`Label_${node.id}`, { width: 1.1, height: 0.38 }, sc);
-  plane.parent = parent;
-  plane.position.set(0, 0.62, 0);
-  plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
-  plane.isPickable = false;
-
-  const mat = new BABYLON.StandardMaterial(`LabelMat_${node.id}`, sc);
-  mat.diffuseTexture = dynamicTexture;
-  mat.specularColor = new BABYLON.Color3(0, 0, 0);
-  mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-  mat.backFaceCulling = false;
-  plane.material = mat;
-
-  // Item 4: Default hidden! Only shown when clicked in 3D map
-  plane.isVisible = false;
-  nodeLabelsMap.set(node.id, plane);
-}
 
 // Item 3: Golden Proportions for Path Tube & Directional Arrows
 function createEdgeInScene(sc: BABYLON.Scene, edge: LayoutEdge) {
@@ -1130,19 +1825,44 @@ function createEdgeInScene(sc: BABYLON.Scene, edge: LayoutEdge) {
   edgeArrowMeshesMap.set(edge.id, arrows);
 }
 
-// 3.1 Dynamic Path Material Rendering: 3 states
+// 3.1 Dynamic Path Material Rendering: VDA 5050 Base (solid) vs Horizon (dim translucent) vs Passed
+// 3.1 Dynamic Path Material Rendering: VDA 5050 Base (solid) vs Horizon (dim translucent) vs Passed
 function updateDynamicPathMaterials() {
-  const activeEdges = agvState.edge_states || [];
-  const passedEdges = agvState.passed_edges || [];
+  const selVeh = fleetVehicles[selectedVehicleId.value] || agvState;
+  const activeEdges = selVeh?.edge_states || agvState.edge_states || [];
+  const passedEdges = selVeh?.passed_edges || agvState.passed_edges || [];
+
+  // Also collect active driving edges from all moving vehicles in fleet
+  const drivingEdges = new Set<string>();
+  const horizonEdges = new Set<string>();
+  for (const v of Object.values(fleetVehicles)) {
+    if (v.edge_states && v.edge_states.length > 0) {
+      drivingEdges.add(v.edge_states[0]);
+      for (let i = 1; i < v.edge_states.length; i++) {
+        horizonEdges.add(v.edge_states[i]);
+      }
+    }
+  }
 
   edgeMeshesMap.forEach((mesh, edgeId) => {
     const mat = mesh.material as BABYLON.StandardMaterial;
     if (!mat) return;
 
-    if (activeEdges.includes(edgeId)) {
-      mat.emissiveColor = new BABYLON.Color3(0.08, 0.95, 0.85); // Neon Cyan
+    const isSelActiveFirst = activeEdges.length > 0 && activeEdges[0] === edgeId;
+    const isSelHorizon = activeEdges.indexOf(edgeId) > 0;
+    const isAnyDriving = drivingEdges.has(edgeId);
+    const isAnyHorizon = horizonEdges.has(edgeId);
+
+    if (isSelActiveFirst || isAnyDriving) {
+      // VDA 5050 Base: Immediate driving road segment -> Glowing bright neon cyan
+      mat.emissiveColor = new BABYLON.Color3(0.08, 0.95, 0.85);
       mat.diffuseColor = new BABYLON.Color3(0.05, 0.7, 0.6);
       mat.alpha = 1.0;
+    } else if (isSelHorizon || isAnyHorizon) {
+      // VDA 5050 Horizon: Unreleased reservation horizon -> Dim translucent cyan/blue preview
+      mat.emissiveColor = new BABYLON.Color3(0.05, 0.45, 0.65);
+      mat.diffuseColor = new BABYLON.Color3(0.03, 0.25, 0.35);
+      mat.alpha = 0.65;
     } else if (passedEdges.includes(edgeId)) {
       mat.emissiveColor = new BABYLON.Color3(0.12, 0.16, 0.22);
       mat.diffuseColor = new BABYLON.Color3(0.08, 0.1, 0.15);
@@ -1156,42 +1876,137 @@ function updateDynamicPathMaterials() {
 }
 
 function createPropInScene(sc: BABYLON.Scene, prop: LayoutProp) {
-  let mesh: BABYLON.AbstractMesh;
+  if (prop.modelType === 'pillar' || prop.modelType === 'charging_station') {
+    BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'hovercar_charging_station.glb', sc).then(result => {
+      const root = result.meshes[0];
+      root.name = `Prop_${prop.id}`;
 
-  if (prop.modelType === 'pillar') {
-    mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 0.45, height: 1.6, depth: 0.45 }, sc);
-    mesh.position.set(prop.x, 0.8, prop.z);
-    const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
-    mat.diffuseColor = new BABYLON.Color3(0.2, 0.25, 0.32);
-    mat.emissiveColor = new BABYLON.Color3(0.02, 0.5, 0.7);
-    mesh.material = mat;
-  } else if (prop.modelType === 'rack' || prop.modelType === 'push_back') {
-    mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 1.6, height: 1.1, depth: 1.0 }, sc);
-    mesh.position.set(prop.x, 0.55, prop.z);
-    const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
-    mat.diffuseColor = new BABYLON.Color3(0.25, 0.28, 0.35);
-    mat.emissiveColor = new BABYLON.Color3(0.65, 0.38, 0.05);
-    mesh.material = mat;
-  } else if (prop.modelType === 'pallet') {
-    mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 1.2, height: 0.15, depth: 1.0 }, sc);
-    mesh.position.set(prop.x, 0.075, prop.z);
-    const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
-    mat.diffuseColor = new BABYLON.Color3(0.15, 0.35, 0.65);
-    mesh.material = mat;
-  } else {
-    mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 1.5, height: 0.4, depth: 1.5 }, sc);
-    mesh.position.set(prop.x, 0.2, prop.z);
-    const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
-    mat.diffuseColor = new BABYLON.Color3(0.18, 0.35, 0.25);
-    mat.emissiveColor = new BABYLON.Color3(0.05, 0.45, 0.25);
-    mesh.material = mat;
+      // Measure original hierarchy bounding box
+      const bounds = root.getHierarchyBoundingVectors(true);
+      const sizeY = Math.max(bounds.max.y - bounds.min.y, 0.1);
+      // Normalized height ~2.0m for realistic charging station
+      const s = (2.0 / sizeY) * (prop.scale || 1.0);
+      root.scaling.setAll(s);
+
+      // Align bottom to y = 0
+      const updatedBounds = root.getHierarchyBoundingVectors(true);
+      const offsetY = -updatedBounds.min.y;
+      root.position.set(prop.x, offsetY, prop.z);
+
+      // Support planar Y-rotation via Gizmo
+      root.rotationQuaternion = null;
+      root.rotation.y = prop.rotationY || 0;
+
+      root.metadata = { type: 'prop', id: prop.id, modelType: 'charging_station' };
+      for (const m of result.meshes) {
+        m.metadata = { type: 'prop', id: prop.id, modelType: 'charging_station' };
+        m.isPickable = true;
+      }
+      propMeshesMap.set(prop.id, root);
+    }).catch(err => {
+      console.warn('Fallback to procedural charging pillar:', err);
+      const mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 0.45, height: 1.8, depth: 0.45 }, sc);
+      mesh.position.set(prop.x, 0.9, prop.z);
+      const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
+      mat.diffuseColor = new BABYLON.Color3(0.2, 0.25, 0.32);
+      mat.emissiveColor = new BABYLON.Color3(0.02, 0.5, 0.7);
+      mesh.material = mat;
+      mesh.rotation.y = prop.rotationY || 0;
+      mesh.scaling.setAll(prop.scale || 1.0);
+      mesh.metadata = { type: 'prop', id: prop.id, modelType: 'charging_station' };
+      mesh.isPickable = true;
+      propMeshesMap.set(prop.id, mesh);
+    });
+    return;
   }
 
+  if (prop.modelType === 'rack' || prop.modelType === 'push_back') {
+    BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'industrial_storage_rack.glb', sc).then(result => {
+      const root = result.meshes[0];
+      root.name = `Prop_${prop.id}`;
+      // Normalized height ~2.6m
+      const bounds = root.getHierarchyBoundingVectors();
+      const sizeY = Math.max(bounds.max.y - bounds.min.y, 0.1);
+      const s = (2.6 / sizeY) * (prop.scale || 1.0);
+      root.scaling.setAll(s);
+
+      const updatedBounds = root.getHierarchyBoundingVectors();
+      const offsetY = -updatedBounds.min.y;
+      root.position.set(prop.x, offsetY, prop.z);
+      root.rotation.y = prop.rotationY || 0;
+
+      root.metadata = { type: 'prop', id: prop.id };
+      for (const m of result.meshes) {
+        m.metadata = { type: 'prop', id: prop.id };
+        m.isPickable = true;
+      }
+      propMeshesMap.set(prop.id, root);
+    }).catch(err => {
+      console.warn('Fallback to procedural rack box:', err);
+      const mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 1.6, height: 1.1, depth: 1.0 }, sc);
+      mesh.position.set(prop.x, 0.55, prop.z);
+      const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
+      mat.diffuseColor = new BABYLON.Color3(0.25, 0.28, 0.35);
+      mat.emissiveColor = new BABYLON.Color3(0.65, 0.38, 0.05);
+      mesh.material = mat;
+      mesh.rotation.y = prop.rotationY;
+      mesh.scaling.setAll(prop.scale || 1.0);
+      mesh.metadata = { type: 'prop', id: prop.id };
+      mesh.isPickable = true;
+      propMeshesMap.set(prop.id, mesh);
+    });
+    return;
+  }
+
+  if (prop.modelType === 'pallet') {
+    BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'plastic_pallet.glb', sc).then(result => {
+      const root = result.meshes[0];
+      root.name = `Prop_${prop.id}`;
+
+      // Euro-pallet dimensions: width ~1.2m
+      const bounds = root.getHierarchyBoundingVectors();
+      const maxHoriz = Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 0.1);
+      const s = (1.2 / maxHoriz) * (prop.scale || 1.0);
+      root.scaling.setAll(s);
+
+      const updatedBounds = root.getHierarchyBoundingVectors();
+      const offsetY = -updatedBounds.min.y;
+      root.position.set(prop.x, offsetY, prop.z);
+      root.rotation.y = prop.rotationY || 0;
+
+      root.metadata = { type: 'prop', id: prop.id };
+      for (const m of result.meshes) {
+        m.metadata = { type: 'prop', id: prop.id };
+        m.isPickable = true;
+      }
+      propMeshesMap.set(prop.id, root);
+    }).catch(err => {
+      console.warn('Fallback to procedural pallet box:', err);
+      const mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 1.2, height: 0.15, depth: 1.0 }, sc);
+      mesh.position.set(prop.x, 0.075, prop.z);
+      const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
+      mat.diffuseColor = new BABYLON.Color3(0.15, 0.35, 0.65);
+      mesh.material = mat;
+      mesh.rotation.y = prop.rotationY;
+      mesh.scaling.setAll(prop.scale || 1.0);
+      mesh.metadata = { type: 'prop', id: prop.id };
+      mesh.isPickable = true;
+      propMeshesMap.set(prop.id, mesh);
+    });
+    return;
+  }
+
+  // Workstation / generic prop fallback
+  const mesh = BABYLON.MeshBuilder.CreateBox(`Prop_${prop.id}`, { width: 1.5, height: 0.4, depth: 1.5 }, sc);
+  mesh.position.set(prop.x, 0.2, prop.z);
+  const mat = new BABYLON.StandardMaterial(`PropMat_${prop.id}`, sc);
+  mat.diffuseColor = new BABYLON.Color3(0.18, 0.35, 0.25);
+  mat.emissiveColor = new BABYLON.Color3(0.05, 0.45, 0.25);
+  mesh.material = mat;
   mesh.rotation.y = prop.rotationY;
   mesh.scaling.setAll(prop.scale || 1.0);
   mesh.metadata = { type: 'prop', id: prop.id };
   mesh.isPickable = true;
-
   propMeshesMap.set(prop.id, mesh);
 }
 
@@ -1203,6 +2018,8 @@ function setupGizmoManager(sc: BABYLON.Scene) {
   gizmoManager.positionGizmoEnabled = true;
   gizmoManager.rotationGizmoEnabled = true;
 
+  let propDragStartPos = { x: 0, z: 0 };
+
   if (gizmoManager.gizmos.positionGizmo) {
     const pos = gizmoManager.gizmos.positionGizmo;
     pos.planarGizmoEnabled = true;
@@ -1211,7 +2028,36 @@ function setupGizmoManager(sc: BABYLON.Scene) {
     if (pos.zPlaneGizmo) pos.zPlaneGizmo.isEnabled = false;
     if (pos.yPlaneGizmo) pos.yPlaneGizmo.isEnabled = true; // X-Z ground plane movement handle
 
+    pos.onDragStartObservable.add(() => {
+      const m = gizmoManager?.attachedMesh;
+      if (m && m.metadata?.type === 'prop') {
+        const prop = factoryLayout.props.find(p => p.id === m.metadata.id);
+        if (prop) {
+          propDragStartPos = { x: prop.x, z: prop.z };
+        }
+      }
+    });
+
     pos.onDragEndObservable.add(() => {
+      const m = gizmoManager?.attachedMesh;
+      if (m && m.metadata?.type === 'prop') {
+        const prop = factoryLayout.props.find(p => p.id === m.metadata.id);
+        if (prop) {
+          const candidateX = Math.round(m.position.x * 100) / 100;
+          const candidateZ = Math.round(m.position.z * 100) / 100;
+          const isCharge = (prop.modelType === 'charging_station' || prop.modelType === 'pillar');
+          const collision = checkObjectClearanceCollision(candidateX, candidateZ, prop.id, MIN_CLEARANCE_DIST, isCharge);
+          if (collision.hasCollision) {
+            // Revert!
+            m.position.x = propDragStartPos.x;
+            m.position.z = propDragStartPos.z;
+            prop.x = propDragStartPos.x;
+            prop.z = propDragStartPos.z;
+            emit('notify', `⚠️ 物件重疊衝突：與 ${collision.conflictingWith} 間距過近 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，已自動復原至安全位置！`, 'warn');
+            return;
+          }
+        }
+      }
       syncGizmoTargetToLayout();
       markLayoutDirty();
     });
@@ -1246,15 +2092,16 @@ function attachGizmoToTarget(mesh: BABYLON.AbstractMesh | null) {
   const meta = mesh.metadata;
   if (meta.type === 'node') {
     // 1. Nodes: Station coordinates on floor (X/Z).
-    // NO gizmo arrows! Direct dragging is handled by PointerDragBehavior on the mesh.
+    // Direct dragging is handled by PointerDragBehavior on the mesh.
     gizmoManager.attachToMesh(null);
     highlightSelectedNode(scene!, mesh);
   } else if (meta.type === 'prop') {
     clearNodeSelection();
-    // 2. Props (Racks): Can move on floor and rotate around Y axis
+    selectedNodeForEdit.value = null;
+    const targetPropMesh = propMeshesMap.get(meta.id) || mesh;
     gizmoManager.positionGizmoEnabled = true;
     gizmoManager.rotationGizmoEnabled = true;
-    gizmoManager.attachToMesh(mesh);
+    gizmoManager.attachToMesh(targetPropMesh);
 
     if (gizmoManager.gizmos.positionGizmo) {
       const pos = gizmoManager.gizmos.positionGizmo;
@@ -1280,7 +2127,7 @@ function syncGizmoTargetToLayout() {
   if (!meta) return;
 
   if (meta.type === 'node') {
-    m.position.y = 0.04; // Strictly enforce ground altitude!
+    m.position.y = 0.04;
     const node = factoryLayout.nodes.find(n => n.id === meta.id);
     if (node) {
       node.x = Math.round(m.position.x * 100) / 100;
@@ -1293,7 +2140,11 @@ function syncGizmoTargetToLayout() {
     if (prop) {
       prop.x = Math.round(m.position.x * 100) / 100;
       prop.z = Math.round(m.position.z * 100) / 100;
-      prop.rotationY = Math.round(m.rotation.y * 100) / 100;
+      if (m.rotationQuaternion) {
+        prop.rotationY = Math.round(m.rotationQuaternion.toEulerAngles().y * 100) / 100;
+      } else {
+        prop.rotationY = Math.round(m.rotation.y * 100) / 100;
+      }
     }
   }
 }
@@ -1316,6 +2167,18 @@ function rebuildEdgesOnly(sc: BABYLON.Scene) {
 // ----------------------------------------------------
 function setupInteractivePointerEvents(sc: BABYLON.Scene) {
   sc.onPointerObservable.add((pointerInfo) => {
+    // Requirement 5: Global Right-click handling for station cargo status editing
+    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+      const evt = pointerInfo.event as MouseEvent;
+      if (evt && evt.button === 2) {
+        handleRightClick(sc, pointerInfo);
+        return;
+      }
+      if (cargoContextMenu.value.visible) {
+        closeCargoContextMenu();
+      }
+    }
+
     // 1. Simulation Mode: Interactive 3D Vehicle & Node Dispatch
     if (currentAppMode.value === 'simulate') {
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
@@ -1334,21 +2197,22 @@ function setupInteractivePointerEvents(sc: BABYLON.Scene) {
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
         const pick = pointerInfo.pickInfo;
         if (!pick || !pick.hit || !pick.pickedMesh) {
-          // Item 4: Clicked empty background floor -> hide all labels
-          hideAllNodeLabels();
           return;
         }
 
         // A. Clicked AGV Vehicle directly in 3D!
         if (pick.pickedMesh.metadata?.type === 'agv') {
-          selectedVehicleId.value = 'AGV-001';
+          const vId = pick.pickedMesh.metadata.id || 'AGV-001';
+          selectedVehicleId.value = vId;
+          selectVehicle(vId);
           dashboardActiveTab.value = 'vehicle';
           is3DQuickDispatchActive.value = true;
           resetDispatchSteps();
           setCameraView('follow');
-          if (agvHaloMesh) agvHaloMesh.isVisible = true;
+          for (const [id, visual] of vehicleVisuals.entries()) {
+            if (visual.haloMesh) visual.haloMesh.isVisible = (vId === id);
+          }
           updateQuickDispatchPreviewLine(sc);
-          hideAllNodeLabels();
           emit('notify', `已鎖定車輛 ${selectedVehicleId.value}，鏡頭自動平滑跟隨！`, 'info');
           return;
         }
@@ -1356,8 +2220,6 @@ function setupInteractivePointerEvents(sc: BABYLON.Scene) {
         // B. Clicked Node directly in 3D!
         if (pick.pickedMesh.metadata?.type === 'node') {
           const nodeId = pick.pickedMesh.metadata.id;
-          // Item 4: Show clicked node label with name & purpose
-          showNodeLabel(nodeId);
           triggerNodeTargetRipple(sc, pick.pickedMesh);
 
           if (is3DQuickDispatchActive.value) {
@@ -1371,9 +2233,6 @@ function setupInteractivePointerEvents(sc: BABYLON.Scene) {
           }
           return;
         }
-
-        // Clicked ground or prop -> hide node labels
-        hideAllNodeLabels();
       }
       return;
     }
@@ -1385,6 +2244,79 @@ function setupInteractivePointerEvents(sc: BABYLON.Scene) {
       handlePointerDownInEditMode(sc, pointerInfo);
     }
   });
+}
+
+// ----------------------------------------------------
+// Requirement 5: Station Cargo Context Menu Handlers
+// ----------------------------------------------------
+function handleRightClick(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
+  const pick = pointerInfo.pickInfo;
+  const evt = pointerInfo.event as MouseEvent;
+
+  if (!pick || !pick.hit || !pick.pickedMesh) {
+    closeCargoContextMenu();
+    return;
+  }
+
+  let pickedNodeId: string | null = null;
+  const meta = pick.pickedMesh.metadata;
+  if (meta?.type === 'node') {
+    pickedNodeId = meta.id;
+  } else if (meta?.type === 'station_pallet' || meta?.type === 'station_cargo') {
+    pickedNodeId = meta.nodeId;
+  } else {
+    const name = pick.pickedMesh.name;
+    const match = name.match(/(?:Pad|StationPallet|StationCargo)_([a-zA-Z0-9_-]+)/);
+    if (match) {
+      pickedNodeId = match[1];
+    }
+  }
+
+  if (pickedNodeId) {
+    const node = factoryLayout.nodes.find(n => n.id === pickedNodeId);
+    if (node) {
+      if (isCargoNode(node.id)) {
+        openCargoContextMenu(evt, node);
+        return;
+      } else {
+        closeCargoContextMenu();
+        emit('notify', `站點 ${node.id} (${getNodeFunctionLabel(node.function)}) 非貨物站，無法編輯貨物狀態`, 'info');
+        return;
+      }
+    }
+  }
+  closeCargoContextMenu();
+}
+
+function openCargoContextMenu(evt: MouseEvent, node: LayoutNode) {
+  const menuWidth = 180;
+  const menuHeight = 110;
+  let x = evt.clientX;
+  let y = evt.clientY;
+
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 12;
+  }
+  if (y + menuHeight > window.innerHeight) {
+    y = window.innerHeight - menuHeight - 12;
+  }
+
+  cargoContextMenu.value = {
+    visible: true,
+    x,
+    y,
+    node
+  };
+}
+
+function closeCargoContextMenu() {
+  cargoContextMenu.value.visible = false;
+  cargoContextMenu.value.node = null;
+}
+
+async function setNodeCargoStatus(node: LayoutNode, hasCargo: boolean) {
+  await toggleStationCargo(node, hasCargo);
+  closeCargoContextMenu();
 }
 
 function triggerNodeTargetRipple(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
@@ -1467,40 +2399,76 @@ function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.Poi
   const tool = currentEditorTool.value;
 
   if (tool === 'select') {
+    // Requirement 3: Select is purely for moving nodes or props with gizmo/drag!
     if (pickedMesh && pickedMesh.metadata) {
-      if (pickedMesh.metadata.type === 'edge') {
-        const edgeId = pickedMesh.metadata.id;
-        const edge = factoryLayout.edges.find(e => e.id === edgeId);
-        if (edge) selectedEdgeForEdit.value = edge;
-      } else {
-        selectedEdgeForEdit.value = null;
+      if (pickedMesh.metadata.type === 'node') {
         attachGizmoToTarget(pickedMesh);
+        highlightSelectedNode(sc, pickedMesh);
+      } else if (pickedMesh.metadata.type === 'prop') {
+        attachGizmoToTarget(pickedMesh);
+        clearNodeSelection();
+      } else {
+        attachGizmoToTarget(null);
+        clearNodeSelection();
       }
     } else {
       attachGizmoToTarget(null);
-      selectedEdgeForEdit.value = null;
+      clearNodeSelection();
     }
   } else if (tool === 'add_node') {
+    // Requirement 1: Add Node with selected node type, automatically spawns corresponding objects!
     const point = pickResult.pickedPoint;
     if (point) {
+      const targetX = Math.round(point.x * 10) / 10;
+      const targetZ = Math.round(point.z * 10) / 10;
+      const isCharge = (newNodeFunction.value === 'Idle/Charge');
+      const collision = checkObjectClearanceCollision(targetX, targetZ, undefined, MIN_CLEARANCE_DIST, isCharge);
+      if (collision.hasCollision) {
+        emit('notify', `⚠️ 無法在此放置站點：與 ${collision.conflictingWith} 重疊 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，請保持安全間距！`, 'warn');
+        return;
+      }
+
       const nextIdx = factoryLayout.nodes.length + 1;
       const newId = `Node-${String(nextIdx).padStart(2, '0')}`;
+      const func = newNodeFunction.value;
+      const typeLabel = getNodeFunctionLabel(func);
+
       const newNode: LayoutNode = {
         id: newId,
-        name: `自訂站點 ${newId}`,
-        x: Math.round(point.x * 10) / 10,
+        name: `${typeLabel} ${newId}`,
+        x: targetX,
         y: 0,
-        z: Math.round(point.z * 10) / 10,
-        function: 'Transit',
-        description: '場域編輯器新增站點'
+        z: targetZ,
+        function: func,
+        description: getNodeTypeDefaultDesc(func),
+        has_cargo: false // Requirement 1: 預設為無貨物狀態
       };
       factoryLayout.nodes.push(newNode);
       createNodeInScene(sc, newNode);
+
+      // If Idle/Charge: automatically spawn a charging station prop next to the node!
+      if (func === 'Idle/Charge') {
+        const candX = Math.round((targetX - 1.2) * 10) / 10;
+        const candZ = targetZ;
+        const nextPropId = `Station-Charge-${String(factoryLayout.props.length + 1).padStart(2, '0')}`;
+        const newStationProp: LayoutProp = {
+          id: nextPropId,
+          modelType: 'charging_station',
+          x: candX,
+          y: 0,
+          z: candZ,
+          rotationY: 0,
+          scale: 1.0
+        };
+        factoryLayout.props.push(newStationProp);
+        createPropInScene(sc, newStationProp);
+      }
+
       markLayoutDirty();
-      emit('notify', `新增節點: ${newId} (${newNode.x}, ${newNode.z})`, 'success');
+      emit('notify', `已新增 ${typeLabel}: ${newId}`, 'success');
     }
   } else if (tool === 'add_edge') {
-    // Problem 2 Rubber-band click-to-connect logic
+    // Requirement 4: Connecting nodes with unidirectional or bidirectional edge
     if (pickedMesh && pickedMesh.metadata?.type === 'node') {
       const nodeId = pickedMesh.metadata.id;
 
@@ -1517,18 +2485,38 @@ function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.Poi
         const endId = nodeId;
         cancelEdgeConnection();
 
-        const edgeId = `Edge-${startId.replace('Node-', '')}-${endId.replace('Node-', '')}`;
         const isBidir = (edgeDirectionMode.value === 'bidirectional');
 
-        // Check if edge already exists
+        // Check if edge already exists between these two nodes in EITHER direction
         const existingIdx = factoryLayout.edges.findIndex(e => 
           (e.startNodeId === startId && e.endNodeId === endId) ||
-          (isBidir && e.startNodeId === endId && e.endNodeId === startId)
+          (e.startNodeId === endId && e.endNodeId === startId)
         );
 
         if (existingIdx >= 0) {
-          emit('notify', `路徑 ${startId} 與 ${endId} 之間已存在連線`, 'warn');
+          const existingEdge = factoryLayout.edges[existingIdx];
+          
+          const oldMesh = edgeMeshesMap.get(existingEdge.id);
+          if (oldMesh) {
+            oldMesh.dispose();
+            edgeMeshesMap.delete(existingEdge.id);
+          }
+          const oldArrows = edgeArrowMeshesMap.get(existingEdge.id);
+          if (oldArrows) {
+            oldArrows.forEach(a => a.dispose());
+            edgeArrowMeshesMap.delete(existingEdge.id);
+          }
+
+          existingEdge.startNodeId = startId;
+          existingEdge.endNodeId = endId;
+          existingEdge.bidirectional = isBidir;
+
+          createEdgeInScene(sc, existingEdge);
+          updateDynamicPathMaterials();
+          markLayoutDirty();
+          emit('notify', `已更新路徑: ${startId} ${isBidir ? '⇄' : '➔'} ${endId} (${isBidir ? '雙向' : '單向'})`, 'success');
         } else {
+          const edgeId = `Edge-${startId.replace('Node-', '')}-${endId.replace('Node-', '')}`;
           const newEdge: LayoutEdge = {
             id: edgeId,
             startNodeId: startId,
@@ -1545,53 +2533,96 @@ function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.Poi
     } else {
       cancelEdgeConnection();
     }
-  } else if (tool === 'add_prop') {
-    const point = pickResult.pickedPoint;
-    if (point) {
-      const nextId = `Rack-${String(factoryLayout.props.length + 1).padStart(2, '0')}`;
-      const newProp: LayoutProp = {
-        id: nextId,
-        modelType: 'rack',
-        x: Math.round(point.x * 10) / 10,
-        y: 0,
-        z: Math.round(point.z * 10) / 10,
-        rotationY: 0,
-        scale: 1.0
-      };
-      factoryLayout.props.push(newProp);
-      createPropInScene(sc, newProp);
-      markLayoutDirty();
-      emit('notify', `已放置貨架: ${nextId}`, 'success');
-    }
   } else if (tool === 'delete') {
     if (pickedMesh && pickedMesh.metadata) {
       const meta = pickedMesh.metadata;
       if (meta.type === 'node') {
-        factoryLayout.nodes = factoryLayout.nodes.filter(n => n.id !== meta.id);
-        factoryLayout.edges = factoryLayout.edges.filter(e => e.startNodeId !== meta.id && e.endNodeId !== meta.id);
-        pickedMesh.dispose();
-        rebuildEdgesOnly(sc);
-        gizmoManager?.attachToMesh(null);
-        markLayoutDirty();
-        emit('notify', `已刪除節點: ${meta.id}`, 'info');
+        deleteNodeById(meta.id);
       } else if (meta.type === 'edge') {
-        factoryLayout.edges = factoryLayout.edges.filter(e => e.id !== meta.id);
-        pickedMesh.dispose();
-        const arrows = edgeArrowMeshesMap.get(meta.id);
-        if (arrows) arrows.forEach(a => a.dispose());
-        edgeArrowMeshesMap.delete(meta.id);
-        selectedEdgeForEdit.value = null;
-        markLayoutDirty();
-        emit('notify', `已刪除路徑: ${meta.id}`, 'info');
+        deleteEdgeById(meta.id);
       } else if (meta.type === 'prop') {
-        factoryLayout.props = factoryLayout.props.filter(p => p.id !== meta.id);
-        pickedMesh.dispose();
-        gizmoManager?.attachToMesh(null);
-        markLayoutDirty();
-        emit('notify', `已刪除物件: ${meta.id}`, 'info');
+        deletePropById(meta.id);
       }
     }
   }
+}
+
+function deleteNodeById(nodeId: string) {
+  if (!scene) return;
+  const node = factoryLayout.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+
+  factoryLayout.nodes = factoryLayout.nodes.filter(n => n.id !== nodeId);
+  factoryLayout.edges = factoryLayout.edges.filter(e => e.startNodeId !== nodeId && e.endNodeId !== nodeId);
+
+  const padMesh = nodeMeshesMap.get(nodeId);
+  if (padMesh) {
+    padMesh.dispose();
+    nodeMeshesMap.delete(nodeId);
+  }
+  const pallet = stationPalletMap.get(nodeId);
+  if (pallet) {
+    pallet.dispose();
+    stationPalletMap.delete(nodeId);
+  }
+  const cargo = stationCargoMap.get(nodeId);
+  if (cargo) {
+    cargo.dispose();
+    stationCargoMap.delete(nodeId);
+  }
+
+  // If node was charging station, also remove any associated charging station prop
+  if (node.function === 'Idle/Charge' || node.function === 'Charge') {
+    const nearbyPropIndex = factoryLayout.props.findIndex(p => 
+      (p.modelType === 'charging_station' || p.modelType === 'pillar') && 
+      Math.hypot(p.x - node.x, p.z - node.z) < 2.5
+    );
+    if (nearbyPropIndex >= 0) {
+      const prop = factoryLayout.props[nearbyPropIndex];
+      const pMesh = propMeshesMap.get(prop.id);
+      if (pMesh) {
+        pMesh.dispose();
+        propMeshesMap.delete(prop.id);
+      }
+      factoryLayout.props.splice(nearbyPropIndex, 1);
+    }
+  }
+
+  rebuildEdgesOnly(scene);
+  gizmoManager?.attachToMesh(null);
+  clearNodeSelection();
+  markLayoutDirty();
+  emit('notify', `已刪除節點: ${nodeId}`, 'info');
+}
+
+function deleteEdgeById(edgeId: string) {
+  if (!scene) return;
+  factoryLayout.edges = factoryLayout.edges.filter(e => e.id !== edgeId);
+  const oldMesh = edgeMeshesMap.get(edgeId);
+  if (oldMesh) {
+    if (oldMesh.material) oldMesh.material.dispose();
+    oldMesh.dispose();
+    edgeMeshesMap.delete(edgeId);
+  }
+  const arrows = edgeArrowMeshesMap.get(edgeId);
+  if (arrows) {
+    arrows.forEach(a => a.dispose());
+    edgeArrowMeshesMap.delete(edgeId);
+  }
+  markLayoutDirty();
+  emit('notify', `已刪除路徑: ${edgeId}`, 'info');
+}
+
+function deletePropById(propId: string) {
+  factoryLayout.props = factoryLayout.props.filter(p => p.id !== propId);
+  const pMesh = propMeshesMap.get(propId);
+  if (pMesh) {
+    pMesh.dispose();
+    propMeshesMap.delete(propId);
+  }
+  gizmoManager?.attachToMesh(null);
+  markLayoutDirty();
+  emit('notify', `已刪除物件: ${propId}`, 'info');
 }
 
 function highlightSelectedNode(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
@@ -1694,7 +2725,21 @@ async function handleSaveLayout() {
 async function handleResetLayout() {
   await fetchLayout();
   if (scene) rebuildLayoutInScene(scene);
+  clearLayoutDirty();
   emit('notify', '已重新載入場域設定', 'info');
+}
+
+async function handleCancelEdit() {
+  await fetchLayout();
+  if (scene) rebuildLayoutInScene(scene);
+  clearLayoutDirty();
+  currentAppMode.value = 'simulate';
+  currentEditorTool.value = 'select';
+  attachGizmoToTarget(null);
+  clearNodeSelection();
+  cancelEdgeConnection();
+  closeCargoContextMenu();
+  emit('notify', '已取消編輯，未儲存的場域變更已捨棄並返回模擬模式', 'info');
 }
 
 // ----------------------------------------------------
@@ -1740,10 +2785,18 @@ function removeDispatchStep(index: number) {
 function setStepAction(index: number, action: DispatchAction) {
   const step = quickDispatchSteps.value[index];
   if (!step) return;
+  const node = getNodeObj(step.node_id);
+  const nodeFunc = node?.function;
   
   // Restriction: Only charging station can charge!
   if (action === 'charge' && !isChargingNode(step.node_id)) {
-    emit('notify', `站點 ${step.node_id} 非充電樁，無法指派充電任務`, 'warn');
+    emit('notify', `站點 ${step.node_id} (${nodeFunc || '未知'}) 非充電樁，無法指派充電任務`, 'warn');
+    return;
+  }
+  
+  // Restriction: Only Cargo stations can pick or drop!
+  if ((action === 'pick' || action === 'drop') && !isCargoNode(step.node_id)) {
+    emit('notify', `站點 ${step.node_id} 非貨物站，無法指派取放貨任務`, 'warn');
     return;
   }
   
@@ -1754,10 +2807,13 @@ function onStepNodeChange(index: number) {
   const step = quickDispatchSteps.value[index];
   if (!step) return;
   
-  // Restriction: if previous action was charge but new node cannot charge, revert to none
+  // Auto-correct incompatible actions when target node changes
   if (step.action === 'charge' && !isChargingNode(step.node_id)) {
     step.action = 'none';
     emit('notify', `站點 ${step.node_id} 非充電樁，已自動變更為純移動`, 'info');
+  } else if ((step.action === 'pick' || step.action === 'drop') && !isCargoNode(step.node_id)) {
+    step.action = 'none';
+    emit('notify', `站點 ${step.node_id} 非貨物站，已自動變更為純移動`, 'info');
   }
   
   if (scene) updateQuickDispatchPreviewLine(scene);
@@ -1841,12 +2897,41 @@ function handleQuickDispatchLaunch() {
     return;
   }
 
-  // Validate charging stations
+  // Real-world validation: Check charging station and cargo pick/drop rules
+  const currentVeh = fleetVehicles[selectedVehicleId.value] || (selectedVehicleId.value === agvState.agv_id ? agvState : null);
+  let simulatedAgvHasCargo = !!currentVeh?.task_info?.has_cargo;
+
   for (let i = 0; i < quickDispatchSteps.value.length; i++) {
     const s = quickDispatchSteps.value[i];
+    const nodeObj = factoryLayout.nodes.find(n => n.id === s.node_id);
+
     if (s.action === 'charge' && !isChargingNode(s.node_id)) {
       emit('notify', `第 ${i + 1} 站 (${s.node_id}) 非充電樁，無法指派充電任務！`, 'warn');
       return;
+    }
+
+    if (s.action === 'pick') {
+      if (simulatedAgvHasCargo) {
+        emit('notify', `⚠️ 車輛 ${selectedVehicleId.value} 在第 ${i + 1} 站 (${s.node_id}) 已有載貨，不可再次取貨！`, 'warn');
+        return;
+      }
+      if (nodeObj && !nodeObj.has_cargo) {
+        emit('notify', `⚠️ 第 ${i + 1} 站 (${s.node_id}) 棧板目前為空無貨物，不可取貨！`, 'warn');
+        return;
+      }
+      simulatedAgvHasCargo = true;
+    }
+
+    if (s.action === 'drop') {
+      if (!simulatedAgvHasCargo) {
+        emit('notify', `⚠️ 車輛 ${selectedVehicleId.value} 在第 ${i + 1} 站 (${s.node_id}) 目前空載，無貨物可放！`, 'warn');
+        return;
+      }
+      if (nodeObj && nodeObj.has_cargo) {
+        emit('notify', `⚠️ 第 ${i + 1} 站 (${s.node_id}) 棧板上已有貨物，不可重複放貨！`, 'warn');
+        return;
+      }
+      simulatedAgvHasCargo = false;
     }
   }
 
@@ -1877,7 +2962,8 @@ function setCameraView(view: 'iso' | 'top' | 'follow') {
       15,
       BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
     );
-    if (agvRoot) {
+    const activeRoot = vehicleVisuals.get(selectedVehicleId.value)?.root || agvRoot;
+    if (activeRoot) {
       BABYLON.Animation.CreateAndStartAnimation(
         'camTargetX',
         camera.target,
@@ -1885,7 +2971,7 @@ function setCameraView(view: 'iso' | 'top' | 'follow') {
         30,
         18,
         camera.target.x,
-        agvRoot.position.x,
+        activeRoot.position.x,
         BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
       );
       BABYLON.Animation.CreateAndStartAnimation(
@@ -1895,7 +2981,7 @@ function setCameraView(view: 'iso' | 'top' | 'follow') {
         30,
         18,
         camera.target.y,
-        agvRoot.position.y,
+        activeRoot.position.y,
         BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
       );
       BABYLON.Animation.CreateAndStartAnimation(
@@ -1905,12 +2991,15 @@ function setCameraView(view: 'iso' | 'top' | 'follow') {
         30,
         18,
         camera.target.z,
-        agvRoot.position.z,
+        activeRoot.position.z,
         BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
       );
     }
   } else {
     // Return to macro global factory view
+    dashboardActiveTab.value = 'fleet';
+    closeQuickDispatch();
+
     BABYLON.Animation.CreateAndStartAnimation(
       'camReset',
       camera,
@@ -1936,7 +3025,8 @@ function setCameraView(view: 'iso' | 'top' | 'follow') {
 
 defineExpose({
   handleSaveLayout,
-  handleResetLayout
+  handleResetLayout,
+  handleCancelEdit
 });
 </script>
 
@@ -1957,10 +3047,10 @@ defineExpose({
   outline: none;
 }
 
-/* Camera Toolbar */
+/* Camera Toolbar - Unified at bottom-left in both simulate and edit modes */
 .camera-toolbar {
   position: absolute;
-  top: 72px;
+  bottom: 24px;
   left: 20px;
   display: flex;
   align-items: center;
@@ -1977,11 +3067,7 @@ defineExpose({
   white-space: nowrap;
 }
 
-/* In Edit Mode, relocate camera toolbar to bottom-left to avoid colliding with top edit toolbar */
 .camera-toolbar.in-edit-mode {
-  top: auto;
-  bottom: 24px;
-  left: 20px;
   border-color: rgba(245, 158, 11, 0.3);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
@@ -2078,6 +3164,52 @@ defineExpose({
   color: #f87171;
 }
 
+.node-type-selector {
+  display: flex;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.type-pill {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.type-pill:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f1f5f9;
+}
+
+.type-pill.active {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+
+.type-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .edge-dir-selector {
   display: flex;
   background: rgba(15, 23, 42, 0.8);
@@ -2144,15 +3276,163 @@ defineExpose({
   transform: translateY(-1px);
 }
 
-.reset-btn {
-  background: rgba(51, 65, 85, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.cancel-btn {
+  background: rgba(51, 65, 85, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: #cbd5e1;
 }
 
-.reset-btn:hover {
-  background: rgba(71, 85, 105, 0.8);
-  color: #ffffff;
+.cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  transform: translateY(-1px);
+}
+
+/* Cargo Context Menu (Right Click on Cargo Station) */
+.cargo-context-menu {
+  position: fixed;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 12px;
+  padding: 8px 10px;
+  width: 175px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8), 0 0 20px rgba(245, 158, 11, 0.18);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: contextMenuFadeIn 0.15s ease-out;
+  user-select: none;
+}
+
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.context-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.header-icon-box {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.header-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-sub {
+  font-size: 9.5px;
+  color: #94a3b8;
+}
+
+.context-close-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.context-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+.context-menu-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.cargo-toggle-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.cargo-pill-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cargo-pill-btn:hover {
+  background: rgba(51, 65, 85, 0.9);
+  color: #f8fafc;
+}
+
+.cargo-pill-btn.active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+
+.cargo-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cargo-status-dot.has-cargo {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
+.cargo-status-dot.no-cargo {
+  border: 1.5px solid #94a3b8;
+  background: transparent;
 }
 
 /* Rubber-band Connection Hint Banner */
@@ -2308,6 +3588,120 @@ defineExpose({
   background: rgba(239, 68, 68, 0.2);
 }
 
+/* Node Popover Configuration Widget */
+.node-popover {
+  min-width: 320px;
+}
+
+.node-popover-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.node-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meta-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.node-name-input, .node-func-select {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  outline: none;
+  flex: 1;
+}
+
+.node-func-select {
+  cursor: pointer;
+}
+
+.node-cargo-switch-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(3, 7, 18, 0.5);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.cargo-switch-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.node-cargo-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(30, 41, 59, 0.9);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.node-cargo-toggle-btn.is-loaded {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.35));
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.6);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
+}
+
+.node-cargo-toggle-btn:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+/* Quick Dispatch Step Cargo Toggle Pill */
+.step-cargo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(30, 41, 59, 0.7);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  transition: all 0.15s ease;
+}
+
+.step-cargo-toggle.has-cargo {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
+}
+
+.step-cargo-toggle:hover {
+  filter: brightness(1.15);
+}
+
 /* Developer Tool UI */
 .dev-tool-panel {
   position: absolute;
@@ -2455,10 +3849,10 @@ defineExpose({
 /* Item 1: Non-blocking Left-side Floating Mission Dispatch Panel */
 .mission-dispatch-panel {
   position: absolute;
-  top: 128px;
+  top: 72px;
   left: 20px;
   width: 340px;
-  max-height: calc(100vh - 150px);
+  max-height: calc(100vh - 156px);
   background: rgba(15, 23, 42, 0.94);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -2537,7 +3931,8 @@ defineExpose({
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
-  max-height: calc(100vh - 220px);
+  flex: 1;
+  min-height: 0;
 }
 
 .mission-start-badge {
@@ -2880,15 +4275,10 @@ defineExpose({
 /* ---------------------------------------------------- */
 @media (max-width: 1024px) {
   .camera-toolbar {
-    top: 66px;
+    bottom: 20px;
     left: 12px;
     padding: 4px 8px;
     gap: 4px;
-  }
-  .camera-toolbar.in-edit-mode {
-    top: auto;
-    bottom: 24px;
-    left: 12px;
   }
   .cam-btn {
     padding: 5px 10px;
@@ -2909,10 +4299,10 @@ defineExpose({
     font-size: 11px;
   }
   .mission-dispatch-panel {
-    top: 118px;
+    top: 66px;
     left: 12px;
     width: 320px;
-    max-height: calc(100vh - 140px);
+    max-height: calc(100vh - 146px);
   }
 }
 
@@ -2969,11 +4359,11 @@ defineExpose({
   }
 
   .mission-dispatch-panel {
-    top: 104px;
+    top: 64px;
     left: 8px;
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
-    max-height: calc(100vh - 116px);
+    max-height: calc(100vh - 128px);
   }
 }
 </style>

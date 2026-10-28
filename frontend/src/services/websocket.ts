@@ -7,7 +7,9 @@ import type {
   SetTimeScaleMessage, 
   FactoryLayout,
   AppMode,
-  EditorTool
+  EditorTool,
+  TrafficStrategy,
+  TrafficMetricsMessage
 } from '../types';
 
 export const isConnected = ref(false);
@@ -73,6 +75,16 @@ export const agvState = reactive<StateUpdateMessage>({
   passed_edges: []
 });
 
+// Multi-AGV Real-time State Map (e.g. AGV-001, AGV-002)
+export const fleetVehicles = reactive<Record<string, StateUpdateMessage>>({});
+
+export function selectVehicle(vehId: string) {
+  selectedVehicleId.value = vehId;
+  if (fleetVehicles[vehId]) {
+    Object.assign(agvState, fleetVehicles[vehId]);
+  }
+}
+
 export const factoryLayout = reactive<FactoryLayout>({
   version: '2.0.0',
   nodes: [],
@@ -80,7 +92,27 @@ export const factoryLayout = reactive<FactoryLayout>({
   props: []
 });
 
-type VisualEventListener = (event: 'pick_done' | 'drop_done') => void;
+export const trafficMetrics = reactive<TrafficMetricsMessage>({
+  type: 'traffic_metrics',
+  strategy_name: 'wait',
+  throughput: 0,
+  total_wait_time_sec: 0,
+  avg_extra_cost_pct: 0,
+  active_vehicles: 1
+});
+
+export function setTrafficStrategy(strategy: TrafficStrategy) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    console.warn('[WebSocket] Cannot set traffic strategy: not connected');
+    return;
+  }
+  socket.send(JSON.stringify({
+    type: 'set_traffic_strategy',
+    strategy
+  }));
+}
+
+type VisualEventListener = (event: 'pick_start' | 'pick_done' | 'drop_start' | 'drop_done', vehicleId?: string) => void;
 const visualEventListeners: VisualEventListener[] = [];
 
 export function onVisualEvent(cb: VisualEventListener) {
@@ -123,27 +155,47 @@ export function connectWebSocket(url?: string) {
           if (msg.type === 'state_update') {
             packetCount.value++;
             const update = msg as StateUpdateMessage;
-            agvState.agv_id = update.agv_id;
-            agvState.position = update.position;
-            agvState.velocity = update.velocity;
-            agvState.battery = update.battery;
-            agvState.task_info = update.task_info;
+            const vId = update.agv_id || 'AGV-001';
+
+            // Update or initialize vehicle in reactive fleet map
+            if (!fleetVehicles[vId]) {
+              fleetVehicles[vId] = { ...update };
+            } else {
+              Object.assign(fleetVehicles[vId], update);
+            }
+
+            // Sync with currently selected vehicle view
+            if (vId === selectedVehicleId.value) {
+              agvState.agv_id = update.agv_id;
+              agvState.position = update.position;
+              agvState.velocity = update.velocity;
+              agvState.battery = update.battery;
+              agvState.task_info = update.task_info;
+              agvState.node_states = update.node_states || [];
+              agvState.edge_states = update.edge_states || [];
+              agvState.passed_edges = update.passed_edges || [];
+            }
 
             if (update.time_scale !== undefined) {
               agvState.time_scale = update.time_scale;
               currentTimeScale.value = update.time_scale;
             }
 
-            agvState.node_states = update.node_states || [];
-            agvState.edge_states = update.edge_states || [];
-            agvState.passed_edges = update.passed_edges || [];
-
-            if (update.visual_event && (update.visual_event === 'pick_done' || update.visual_event === 'drop_done')) {
-              agvState.visual_event = update.visual_event;
+            if (update.visual_event && ['pick_start', 'pick_done', 'drop_start', 'drop_done'].includes(update.visual_event)) {
+              if (vId === selectedVehicleId.value) {
+                agvState.visual_event = update.visual_event;
+              }
               for (const cb of visualEventListeners) {
-                cb(update.visual_event);
+                cb(update.visual_event as any, vId);
               }
             }
+          } else if (msg.type === 'traffic_metrics') {
+            const metrics = msg as TrafficMetricsMessage;
+            trafficMetrics.strategy_name = metrics.strategy_name;
+            trafficMetrics.throughput = metrics.throughput;
+            trafficMetrics.total_wait_time_sec = metrics.total_wait_time_sec;
+            trafficMetrics.avg_extra_cost_pct = metrics.avg_extra_cost_pct;
+            trafficMetrics.active_vehicles = metrics.active_vehicles;
           }
         }
       } catch (err) {

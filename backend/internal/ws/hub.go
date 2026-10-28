@@ -34,7 +34,21 @@ type Hub struct {
 	mu                  sync.RWMutex
 	onOrderReceived     func(msg model.WsDispatchOrderMessage)
 	onTimeScaleReceived func(scale float64)
+	onStrategyReceived  func(strategy string)
 	getCurrentState     func() model.WsStateUpdateMessage
+	getInitialStates    func() []model.WsStateUpdateMessage
+}
+
+func (h *Hub) SetStrategyCallback(fn func(strategy string)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onStrategyReceived = fn
+}
+
+func (h *Hub) SetInitialStatesProvider(fn func() []model.WsStateUpdateMessage) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.getInitialStates = fn
 }
 
 func NewHub(onOrderReceived func(model.WsDispatchOrderMessage), onTimeScaleReceived func(float64), getCurrentState func() model.WsStateUpdateMessage) *Hub {
@@ -57,8 +71,17 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			h.mu.Unlock()
 
-			// Immediately push current state to the newly connected client
-			if h.getCurrentState != nil {
+			// Immediately push current fleet state to newly connected client
+			if h.getInitialStates != nil {
+				for _, state := range h.getInitialStates() {
+					if data, err := json.Marshal(state); err == nil {
+						select {
+						case client.send <- data:
+						default:
+						}
+					}
+				}
+			} else if h.getCurrentState != nil {
 				initMsg := h.getCurrentState()
 				if data, err := json.Marshal(initMsg); err == nil {
 					select {
@@ -171,9 +194,31 @@ func (c *Client) readPump() {
 					c.hub.onTimeScaleReceived(scaleMsg.TimeScale)
 				}
 			}
+		case "set_traffic_strategy":
+			var stratMsg struct {
+				Strategy string `json:"strategy"`
+			}
+			if err := json.Unmarshal(message, &stratMsg); err == nil {
+				log.Printf("[WS] Received set_traffic_strategy: %s", stratMsg.Strategy)
+				if c.hub.onStrategyReceived != nil {
+					c.hub.onStrategyReceived(stratMsg.Strategy)
+				}
+			}
 		default:
 			log.Printf("[WS] Received unhandled message type %s: %s", baseMsg.Type, string(message))
 		}
+	}
+}
+
+// BroadcastJSON serializes any struct to JSON and broadcasts to all WebSocket clients
+func (h *Hub) BroadcastJSON(v interface{}) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	select {
+	case h.broadcast <- data:
+	default:
 	}
 }
 

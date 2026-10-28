@@ -22,9 +22,11 @@ type WsTaskInfo struct {
 	TargetNode     string `json:"target_node"`
 	Action         string `json:"action"`
 	DisplayMessage string `json:"display_message"`
-	CurrentNode    string `json:"current_node,omitempty"`
-	PreviousNode   string `json:"previous_node,omitempty"`
-	HasCargo       bool   `json:"has_cargo"`
+	CurrentNode    string  `json:"current_node,omitempty"`
+	PreviousNode   string  `json:"previous_node,omitempty"`
+	HasCargo       bool    `json:"has_cargo"`
+	IsTrafficWait  bool    `json:"is_traffic_wait,omitempty"`
+	WaitSeconds    float64 `json:"wait_seconds,omitempty"`
 }
 
 // WsStateUpdateMessage is broadcast from backend to frontend at 10Hz

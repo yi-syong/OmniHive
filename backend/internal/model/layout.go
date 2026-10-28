@@ -9,6 +9,7 @@ type LayoutNode struct {
 	Z           float64 `json:"z"`
 	Function    string  `json:"function"`    // "Idle/Charge", "Transit", "Pick-up", "Drop-off"
 	Description string  `json:"description"`
+	HasCargo    bool    `json:"has_cargo"`
 }
 
 // LayoutEdge represents a directional or bidirectional path connecting two nodes

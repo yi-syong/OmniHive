@@ -28,7 +28,7 @@ services:
     depends_on:
       - mosquitto
 
-  # 3. 支援 VDA 5050 的車輛行為模擬器 (Kinematics, Battery CC/CV, Actions)
+  # 3. 支援 VDA 5050 的多車行為模擬器 (Kinematics, Battery CC/CV, Actions)
   vehicle-sim:
     build:
       context: ./backend
@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     environment:
       - MQTT_BROKER=tcp://mosquitto:1883
-      - AGV_ID=AGV-001
+      - AGV_IDS=AGV-001,AGV-002
       - LAYOUT_FILE=/app/factory_layout.json
     volumes:
       - ./backend/factory_layout.json:/app/factory_layout.json

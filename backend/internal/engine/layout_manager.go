@@ -305,3 +305,91 @@ func (lm *LayoutManager) FindPath(startNodeID, targetNodeID string) ([]model.Lay
 
 	return waypoints, edgeIDs, nil
 }
+
+// FindPathAvoiding finds the shortest path while avoiding specified blocked/congested nodes
+func (lm *LayoutManager) FindPathAvoiding(startNodeID, targetNodeID string, blockedNodes map[string]bool) ([]model.LayoutNode, []string, error) {
+	lm.mu.RLock()
+	defer lm.mu.RUnlock()
+
+	if _, ok := lm.nodeMap[startNodeID]; !ok {
+		return nil, nil, fmt.Errorf("起點節點 %s 不存在", startNodeID)
+	}
+	if _, ok := lm.nodeMap[targetNodeID]; !ok {
+		return nil, nil, fmt.Errorf("目標節點 %s 不存在", targetNodeID)
+	}
+
+	if startNodeID == targetNodeID {
+		return []model.LayoutNode{}, []string{}, nil
+	}
+
+	type queueItem struct {
+		currNode string
+		path     []string
+	}
+
+	queue := []queueItem{{currNode: startNodeID, path: []string{startNodeID}}}
+	visited := map[string]bool{startNodeID: true}
+
+	var foundPath []string
+
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+
+		if curr.currNode == targetNodeID {
+			foundPath = curr.path
+			break
+		}
+
+		for _, neighbor := range lm.adjList[curr.currNode] {
+			if !visited[neighbor] {
+				// If neighbor is blocked and not the target, skip it
+				if blockedNodes != nil && blockedNodes[neighbor] && neighbor != targetNodeID {
+					continue
+				}
+
+				visited[neighbor] = true
+				newPath := append([]string{}, curr.path...)
+				newPath = append(newPath, neighbor)
+				queue = append(queue, queueItem{currNode: neighbor, path: newPath})
+			}
+		}
+	}
+
+	if len(foundPath) == 0 {
+		return nil, nil, fmt.Errorf("避讓繞路無法抵達目標節點 %s", targetNodeID)
+	}
+
+	var waypoints []model.LayoutNode
+	var edgeIDs []string
+
+	for i := 1; i < len(foundPath); i++ {
+		prevID := foundPath[i-1]
+		currID := foundPath[i]
+
+		node := lm.nodeMap[currID]
+		waypoints = append(waypoints, node)
+
+		key := fmt.Sprintf("%s_%s", prevID, currID)
+		edgeID, exists := lm.edgeIdMap[key]
+		if !exists {
+			edgeID = fmt.Sprintf("Edge-%s-%s", prevID, currID)
+		}
+		edgeIDs = append(edgeIDs, edgeID)
+	}
+
+	return waypoints, edgeIDs, nil
+}
+
+// GetEdgeBetween returns the edge ID connecting startID to endID if it exists
+func (lm *LayoutManager) GetEdgeBetween(startID, endID string) (string, bool) {
+	lm.mu.RLock()
+	defer lm.mu.RUnlock()
+
+	key := fmt.Sprintf("%s_%s", startID, endID)
+	edgeID, exists := lm.edgeIdMap[key]
+	if exists {
+		return edgeID, true
+	}
+	return "", false
+}

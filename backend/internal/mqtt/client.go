@@ -72,12 +72,12 @@ func NewMqttBridge(brokerURL, agvID string, onTelemetryRx func(model.WsStateUpda
 		tokenWild := c.Subscribe("omnihive/telemetry/+", 0, bridge.handleTelemetryMessage)
 		tokenWild.Wait()
 
-		// 2. Subscribe to VDA 5050 State topic
-		token = c.Subscribe(stateTopic, 1, bridge.handleStateMessage)
+		// 2. Subscribe to VDA 5050 State topic (wildcard for all vehicles)
+		token = c.Subscribe("vda5050/v2.1.0/+/state", 1, bridge.handleStateMessage)
 		if token.Wait() && token.Error() != nil {
-			log.Printf("[MQTT ERROR] Failed to subscribe to %s: %v", stateTopic, token.Error())
+			log.Printf("[MQTT ERROR] Failed to subscribe to vda5050/v2.1.0/+/state: %v", token.Error())
 		} else {
-			log.Printf("[MQTT] Subscribed to VDA 5050 state topic: %s", stateTopic)
+			log.Printf("[MQTT] Subscribed to VDA 5050 wildcard state topic")
 		}
 	})
 
@@ -224,8 +224,29 @@ func (b *MqttBridge) TranslateAndPublishOrder(targetNode, action string) error {
 	})
 }
 
+// PublishVDAOrder publishes a complete VDA 5050 Order or OrderUpdate directly to the AGV's MQTT topic
+func (b *MqttBridge) PublishVDAOrder(agvID string, order model.Order) error {
+	data, err := json.Marshal(order)
+	if err != nil {
+		return fmt.Errorf("failed to marshal VDA 5050 order: %w", err)
+	}
+
+	if b.client == nil || !b.client.IsConnected() {
+		return fmt.Errorf("MQTT broker not connected")
+	}
+
+	topic := fmt.Sprintf("vda5050/v2.1.0/%s/order", strings.ToLower(agvID))
+	token := b.client.Publish(topic, 1, false, data)
+	token.Wait()
+	if token.Error() != nil {
+		return fmt.Errorf("failed to publish MQTT order: %w", token.Error())
+	}
+	return nil
+}
+
 func (b *MqttBridge) Close() {
 	if b.client != nil && b.client.IsConnected() {
 		b.client.Disconnect(250)
 	}
 }
+

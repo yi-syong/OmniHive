@@ -159,10 +159,12 @@
             <button
               v-for="act in actions"
               :key="act.value"
-              :class="['action-item', { active: selectedAction === act.value }]"
-              @click="selectedAction = act.value"
+              :class="['action-item', { active: selectedAction === act.value, disabled: isActionDisabled(act.value) }]"
+              :disabled="isActionDisabled(act.value)"
+              @click="!isActionDisabled(act.value) && (selectedAction = act.value)"
               role="radio"
               :aria-checked="selectedAction === act.value"
+              :title="getActionTooltip(act.value)"
             >
               <component :is="act.iconComponent" :size="15" class="action-svg" />
               <span class="action-name">{{ act.label }}</span>
@@ -239,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { 
   Send, 
   Navigation, 
@@ -272,30 +274,33 @@ import {
   quickDispatchAction
 } from '../services/websocket';
 
-type ActionType = 'none' | 'pick' | 'drop' | 'charge';
+type ActionType = 'none' | 'wait' | 'pick' | 'drop' | 'charge';
 
 const isCollapsed = ref(false);
-const selectedAction = ref<ActionType>('pick');
+const selectedAction = ref<ActionType>('none');
 const searchQuery = ref('');
-const selectedCategory = ref<'all' | 'charge' | 'pickup' | 'dropoff' | 'transit'>('all');
+const selectedCategory = ref<'all' | 'charge' | 'pickup' | 'dropoff' | 'wait' | 'transit'>('all');
 const viewMode = ref<'grid' | 'list'>('grid');
 
 const isBusy = computed(() => agvState.task_info.status === 'DRIVING' || agvState.task_info.status === 'ACTING');
 
 function getNodeAccent(func: string): string {
   switch (func) {
-    case 'Idle/Charge': return '#06b6d4';
+    case 'Idle/Charge':
+    case 'Charge': return '#06b6d4';
     case 'Transit': return '#6366f1';
-    case 'Pick-up': return '#f59e0b';
+    case 'Wait': return '#f59e0b';
+    case 'Cargo':
+    case 'Pick-up':
     case 'Drop-off': return '#10b981';
     default: return '#38bdf8';
   }
 }
 
-function getNodeRole(func: string): 'charge' | 'pickup' | 'dropoff' | 'transit' {
+function getNodeRole(func: string): 'charge' | 'cargo' | 'wait' | 'transit' {
   if (func.includes('Charge') || func.includes('Idle')) return 'charge';
-  if (func.includes('Pick')) return 'pickup';
-  if (func.includes('Drop')) return 'dropoff';
+  if (func.includes('Pick') || func.includes('Drop') || func.includes('Cargo')) return 'cargo';
+  if (func.includes('Wait')) return 'wait';
   return 'transit';
 }
 
@@ -315,8 +320,8 @@ const displayNodes = computed(() => {
   return [
     { id: 'Node-01', name: '待命/充電區', x: 0, z: 0, function: 'Idle/Charge', description: '充電樁', role: 'charge' as const, accentColor: '#06b6d4' },
     { id: 'Node-02', name: '路徑轉折點', x: 10, z: 0, function: 'Transit', description: '通道', role: 'transit' as const, accentColor: '#6366f1' },
-    { id: 'Node-03', name: '貨物取貨區', x: 10, z: 10, function: 'Pick-up', description: '智慧貨架', role: 'pickup' as const, accentColor: '#f59e0b' },
-    { id: 'Node-04', name: '貨物卸貨區', x: 0, z: 10, function: 'Drop-off', description: '輸送帶', role: 'dropoff' as const, accentColor: '#10b981' },
+    { id: 'Node-03', name: '貨物站點 A', x: 10, z: 10, function: 'Cargo', description: '智慧貨架', role: 'cargo' as const, accentColor: '#10b981' },
+    { id: 'Node-04', name: '貨物站點 B', x: 0, z: 10, function: 'Cargo', description: '輸送帶', role: 'cargo' as const, accentColor: '#10b981' },
   ];
 });
 
@@ -325,10 +330,10 @@ const categoryList = computed(() => {
   const allNodes = displayNodes.value;
   return [
     { key: 'all' as const, label: '全部', count: allNodes.length },
-    { key: 'pickup' as const, label: '取貨', count: allNodes.filter(n => n.role === 'pickup').length },
-    { key: 'dropoff' as const, label: '卸貨', count: allNodes.filter(n => n.role === 'dropoff').length },
+    { key: 'cargo' as const, label: '貨物', count: allNodes.filter(n => n.role === 'cargo').length },
     { key: 'charge' as const, label: '充電', count: allNodes.filter(n => n.role === 'charge').length },
-    { key: 'transit' as const, label: '轉折', count: allNodes.filter(n => n.role === 'transit').length },
+    { key: 'wait' as const, label: '等待', count: allNodes.filter(n => n.role === 'wait').length },
+    { key: 'transit' as const, label: '通道', count: allNodes.filter(n => n.role === 'transit').length },
   ];
 });
 
@@ -338,14 +343,14 @@ const quickChips = computed(() => {
   const current = agvState.task_info.current_node;
   if (current) chips.push({ id: current, tag: '當前' });
 
-  // Pick station candidate
-  const pickNode = displayNodes.value.find(n => n.role === 'pickup');
-  if (pickNode && pickNode.id !== current) chips.push({ id: pickNode.id, tag: '取貨' });
+  // Cargo station candidate
+  const cargoNode = displayNodes.value.find(n => n.role === 'cargo');
+  if (cargoNode && cargoNode.id !== current) chips.push({ id: cargoNode.id, tag: '貨物站' });
 
-  // Drop station candidate
-  const dropNode = displayNodes.value.find(n => n.role === 'dropoff');
-  if (dropNode && dropNode.id !== current && (!pickNode || dropNode.id !== pickNode.id)) {
-    chips.push({ id: dropNode.id, tag: '卸貨' });
+  // Charging station candidate
+  const chargeNode = displayNodes.value.find(n => n.role === 'charge');
+  if (chargeNode && chargeNode.id !== current && (!cargoNode || chargeNode.id !== cargoNode.id)) {
+    chips.push({ id: chargeNode.id, tag: '充電' });
   }
 
   return chips.slice(0, 3);
@@ -373,11 +378,41 @@ const filteredNodes = computed(() => {
 });
 
 const actions = [
-  { value: 'none' as ActionType, label: '巡航移動', iconComponent: Navigation },
+  { value: 'none' as ActionType, label: '純移動 (不停留)', iconComponent: Navigation },
+  { value: 'wait' as ActionType, label: '原地等待 (3秒)', iconComponent: Clock },
   { value: 'pick' as ActionType, label: '取貨 (Pick)', iconComponent: Package },
   { value: 'drop' as ActionType, label: '卸貨 (Drop)', iconComponent: Truck },
   { value: 'charge' as ActionType, label: '充電 (Charge)', iconComponent: Zap },
 ];
+
+function isActionDisabled(act: ActionType): boolean {
+  const node = displayNodes.value.find(n => n.id === selectedNodeForDispatch.value);
+  if (!node) return false;
+  if (act === 'charge') return node.role !== 'charge';
+  if (act === 'pick' || act === 'drop') return node.role !== 'cargo';
+  return false;
+}
+
+function getActionTooltip(act: ActionType): string {
+  const node = displayNodes.value.find(n => n.id === selectedNodeForDispatch.value);
+  if (!node) return '';
+  if (act === 'charge' && node.role !== 'charge') return '⚠️ 此站非充電樁，無法指派充電';
+  if ((act === 'pick' || act === 'drop') && node.role !== 'cargo') return '⚠️ 此站非貨物站，無法取放貨';
+  if (act === 'none') return '純移動：車輛巡航移動，抵達後不停留直接完成任務';
+  if (act === 'wait') return '原地等待：車輛到達後原地計時停留 3 秒，模擬安全防護或交通緩衝';
+  return '';
+}
+
+watch(selectedNodeForDispatch, (newNodeId) => {
+  const node = displayNodes.value.find(n => n.id === newNodeId);
+  if (!node) return;
+  if (isActionDisabled(selectedAction.value)) {
+    if (node.role === 'cargo') selectedAction.value = 'pick';
+    else if (node.role === 'charge') selectedAction.value = 'charge';
+    else if (node.role === 'wait') selectedAction.value = 'wait';
+    else selectedAction.value = 'none';
+  }
+}, { immediate: true });
 
 function handleDispatch() {
   if (currentAppMode.value === 'edit') {
@@ -935,9 +970,19 @@ function activate3DQuickDispatch() {
   transition: all var(--transition-fast);
 }
 
-.action-item:hover {
+.action-item:hover:not(:disabled) {
   background: rgba(51, 65, 85, 0.6);
   transform: translateY(-1px);
+}
+
+.action-item:disabled,
+.action-item.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: auto;
+  filter: grayscale(0.8);
+  border-color: rgba(255, 255, 255, 0.05);
+  background: rgba(15, 23, 42, 0.4);
 }
 
 .action-item.active {

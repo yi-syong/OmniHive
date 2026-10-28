@@ -16,7 +16,7 @@
           </div>
           <div class="status-badge badge-fleet-count">
             <span class="pulsing-dot"></span>
-            1 輛在線
+            {{ fleetOnlineCount }} 輛在線
           </div>
           <button 
             class="panel-close-btn" 
@@ -48,8 +48,8 @@
                 <span class="kpi-title">車隊在線率</span>
               </div>
               <div class="kpi-value-row">
-                <span class="kpi-num">1</span>
-                <span class="kpi-sub">/ 1 輛 (100%)</span>
+                <span class="kpi-num">{{ fleetOnlineCount }}</span>
+                <span class="kpi-sub">/ 2 輛 ({{ (fleetOnlineCount / 2 * 100).toFixed(0) }}%)</span>
               </div>
             </div>
 
@@ -59,7 +59,7 @@
                 <span class="kpi-title">平均電量</span>
               </div>
               <div class="kpi-value-row">
-                <span class="kpi-num">{{ agvState.battery.level.toFixed(0) }}</span>
+                <span class="kpi-num">{{ fleetAverageBattery.toFixed(0) }}</span>
                 <span class="kpi-unit">%</span>
               </div>
             </div>
@@ -70,8 +70,8 @@
                 <span class="kpi-title">任務狀態</span>
               </div>
               <div class="kpi-value-row">
-                <span class="kpi-status-text" :class="agvState.task_info.status === 'DRIVING' ? 'text-cyan' : 'text-slate'">
-                  {{ agvState.task_info.status === 'DRIVING' ? '1 輛行駛中' : (agvState.task_info.status === 'ACTING' ? '1 輛作業中' : '全體待命中') }}
+                <span class="kpi-status-text" :class="fleetStatusSummary.includes('行駛') ? 'text-cyan' : (fleetStatusSummary.includes('交管') ? 'text-amber' : 'text-slate')">
+                  {{ fleetStatusSummary }}
                 </span>
               </div>
             </div>
@@ -83,8 +83,91 @@
               </div>
               <div class="kpi-value-row">
                 <span class="kpi-status-text">
-                  {{ agvState.task_info.has_cargo ? '1 輛載貨中' : '全體空載' }}
+                  {{ fleetCargoSummary }}
                 </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 1.1 VDA 5050 Traffic Control Strategy Hot-Swap Card -->
+          <div class="strategy-selector-card">
+            <div class="strategy-card-header">
+              <div class="strategy-title-group">
+                <GitFork :size="13" class="text-cyan" />
+                <span class="strategy-title">VDA 5050 交管演算法</span>
+              </div>
+              <span class="strategy-badge" :class="trafficMetrics.strategy_name === 'reroute' ? 'badge-reroute' : 'badge-wait'">
+                {{ trafficMetrics.strategy_name === 'reroute' ? '動態繞路模式' : '死等淨空模式' }}
+              </span>
+            </div>
+            <div class="strategy-button-group">
+              <button 
+                :class="['strat-btn', { active: trafficMetrics.strategy_name === 'wait' }]"
+                @click="setTrafficStrategy('wait')"
+                title="死等淨空：前方節點未釋放 (Horizon) 立即原地煞停，絕對安全零繞路"
+              >
+                <PauseCircle :size="12" />
+                <span>等待優先 (Wait)</span>
+              </button>
+              <button 
+                :class="['strat-btn', { active: trafficMetrics.strategy_name === 'reroute' }]"
+                @click="setTrafficStrategy('reroute')"
+                title="動態繞路：停等超過閾值自動觸發 A* 尋求避障替代路線，提升全廠吞吐量"
+              >
+                <Shuffle :size="12" />
+                <span>繞路優先 (Reroute)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 1.2 A/B Testing Telemetry KPI Cards -->
+          <div class="ab-metrics-section">
+            <div class="ab-metrics-head">
+              <span class="ab-metrics-title">A/B 演算法驗證量化數據</span>
+              <span class="ab-metrics-sub">即時效能對比</span>
+            </div>
+            <div class="ab-metrics-grid">
+              <!-- KPI 1: 全廠吞吐量 -->
+              <div class="ab-kpi-card">
+                <div class="kpi-header">
+                  <CheckCircle2 :size="12" class="text-emerald" />
+                  <span class="kpi-title">全廠吞吐量</span>
+                </div>
+                <div class="kpi-value-row">
+                  <span class="kpi-num text-emerald">{{ trafficMetrics.throughput }}</span>
+                  <span class="kpi-unit">單</span>
+                </div>
+                <span class="kpi-sub">累計成功完成</span>
+              </div>
+
+              <!-- KPI 2: 交管閒置總時長 -->
+              <div class="ab-kpi-card">
+                <div class="kpi-header">
+                  <Clock :size="12" class="text-amber" />
+                  <span class="kpi-title">交管閒置時長</span>
+                </div>
+                <div class="kpi-value-row">
+                  <span class="kpi-num" :class="trafficMetrics.total_wait_time_sec > 5 ? 'text-amber' : 'text-slate'">
+                    {{ trafficMetrics.total_wait_time_sec.toFixed(1) }}
+                  </span>
+                  <span class="kpi-unit">s</span>
+                </div>
+                <span class="kpi-sub">路權未發被迫煞停</span>
+              </div>
+
+              <!-- KPI 3: 平均額外耗能比 -->
+              <div class="ab-kpi-card">
+                <div class="kpi-header">
+                  <TrendingUp :size="12" class="text-purple" />
+                  <span class="kpi-title">平均額外耗損</span>
+                </div>
+                <div class="kpi-value-row">
+                  <span class="kpi-num" :class="trafficMetrics.avg_extra_cost_pct > 0 ? 'text-purple' : 'text-slate'">
+                    +{{ trafficMetrics.avg_extra_cost_pct.toFixed(1) }}
+                  </span>
+                  <span class="kpi-unit">%</span>
+                </div>
+                <span class="kpi-sub">繞路避雍塞代價</span>
               </div>
             </div>
           </div>
@@ -96,30 +179,32 @@
               <span class="fleet-section-sub">點擊卡片查看單車詳細遙測</span>
             </div>
 
-            <!-- Vehicle 1: AGV-001 (Active) -->
+            <!-- Dynamic Fleet Vehicle Cards -->
             <div 
+              v-for="veh in activeVehicleList"
+              :key="veh.vehicle_id"
               class="vehicle-fleet-card active-agv"
-              @click="drillDownToVehicle('AGV-001')"
-              title="點擊進入 AGV-001 單車遙測面板"
+              @click="drillDownToVehicle(veh.vehicle_id)"
+              :title="`點擊進入 ${veh.vehicle_id} 單車遙測面板`"
             >
               <div class="vcard-top">
                 <div class="vcard-title-group">
                   <div class="vcard-avatar">
-                    <Bot :size="16" class="text-cyan" />
+                    <Bot :size="16" :class="veh.vehicle_id === 'AGV-001' ? 'text-cyan' : 'text-amber'" />
                   </div>
                   <div>
                     <div class="vcard-name-row">
-                      <span class="vcard-name">AGV-001</span>
-                      <span class="vcard-type-tag">頂升叉車</span>
+                      <span class="vcard-name">{{ veh.vehicle_id }}</span>
+                      <span class="vcard-type-tag">{{ veh.vehicle_id === 'AGV-001' ? '頂升叉車' : '重載搬運' }}</span>
                     </div>
                     <span class="vcard-loc">
-                      停靠: <strong>{{ agvState.task_info.current_node || 'Node-01' }}</strong> · {{ getNodeName(agvState.task_info.current_node) }}
+                      停靠: <strong>{{ veh.task_info?.current_node || 'Node-01' }}</strong> · {{ getNodeName(veh.task_info?.current_node) }}
                     </span>
                   </div>
                 </div>
-                <div :class="['status-badge', statusBadgeClass]">
+                <div :class="['status-badge', getVehicleStatus(veh).badgeClass]">
                   <span class="pulsing-dot"></span>
-                  {{ statusLabel }}
+                  {{ getVehicleStatus(veh).label }}
                 </div>
               </div>
 
@@ -127,17 +212,17 @@
               <div class="vcard-metrics">
                 <div class="vcard-metric-col">
                   <span class="vm-lbl">速度</span>
-                  <span class="vm-val">{{ (agvState.velocity * 3.6).toFixed(1) }} <small>km/h</small></span>
+                  <span class="vm-val">{{ ((veh.velocity || 0) * 3.6).toFixed(1) }} <small>km/h</small></span>
                 </div>
                 <div class="vcard-metric-col">
                   <span class="vm-lbl">電量</span>
-                  <span class="vm-val" :class="getBatteryLevelClass(agvState.battery.level)">
-                    {{ agvState.battery.level.toFixed(0) }}%
+                  <span class="vm-val" :class="getBatteryLevelClass(veh.battery?.level || 0)">
+                    {{ (veh.battery?.level || 0).toFixed(0) }}%
                   </span>
                 </div>
                 <div class="vcard-metric-col">
                   <span class="vm-lbl">載重</span>
-                  <span class="vm-val">{{ agvState.task_info.has_cargo ? '📦 載貨' : '空載' }}</span>
+                  <span class="vm-val">{{ veh.task_info?.has_cargo ? '📦 載貨' : '空載' }}</span>
                 </div>
               </div>
 
@@ -145,8 +230,8 @@
               <div class="vcard-bat-bar">
                 <div 
                   class="vcard-bat-fill" 
-                  :class="getBatteryLevelClass(agvState.battery.level)"
-                  :style="{ width: `${agvState.battery.level}%` }"
+                  :class="getBatteryLevelClass(veh.battery?.level || 0)"
+                  :style="{ width: `${veh.battery?.level || 0}%` }"
                 ></div>
               </div>
 
@@ -154,8 +239,8 @@
                 <span class="vcard-drill-hint">查看詳細遙測與數據 ➔</span>
                 <button 
                   class="btn-vcard-dispatch"
-                  @click.stop="openDispatchForVehicle('AGV-001')"
-                  title="開啟 AGV-001 任務派遣"
+                  @click.stop="openDispatchForVehicle(veh.vehicle_id)"
+                  :title="`開啟 ${veh.vehicle_id} 任務派遣`"
                 >
                   <Navigation :size="12" />
                   <span>派車</span>
@@ -163,8 +248,8 @@
               </div>
             </div>
 
-            <!-- Vehicle 2: AGV-002 (Expansion Demo / Standby Slot) -->
-            <div class="vehicle-fleet-card standby-agv">
+            <!-- Standby Slot Placeholder when fleet is empty -->
+            <div v-if="activeVehicleList.length === 0" class="vehicle-fleet-card standby-agv">
               <div class="vcard-top">
                 <div class="vcard-title-group">
                   <div class="vcard-avatar standby">
@@ -172,23 +257,13 @@
                   </div>
                   <div>
                     <div class="vcard-name-row">
-                      <span class="vcard-name text-slate">AGV-002</span>
-                      <span class="vcard-type-tag standby">重載搬運</span>
+                      <span class="vcard-name text-slate">無上線車輛</span>
+                      <span class="vcard-type-tag standby">待機中</span>
                     </div>
-                    <span class="vcard-loc text-slate">未派入 / 離線待機中</span>
+                    <span class="vcard-loc text-slate">等待模擬器或車輛 MQTT 連線...</span>
                   </div>
                 </div>
-                <span class="status-badge badge-standby">待上線</span>
-              </div>
-              <div class="vcard-metrics standby">
-                <div class="vcard-metric-col">
-                  <span class="vm-lbl">通訊通道</span>
-                  <span class="vm-val-mono">vda5050/agv-002</span>
-                </div>
-                <div class="vcard-metric-col">
-                  <span class="vm-lbl">擴充狀態</span>
-                  <span class="vm-val">預留多車擴展槽</span>
-                </div>
+                <span class="status-badge badge-standby">離線</span>
               </div>
             </div>
           </div>
@@ -201,7 +276,7 @@
       <div v-else class="vehicle-view-wrap">
         <!-- Back Bar to Fleet Overview -->
         <div class="drill-back-bar">
-          <button class="btn-back-fleet" @click="dashboardActiveTab = 'fleet'">
+          <button class="btn-back-fleet" @click="dashboardActiveTab = 'fleet'; is3DQuickDispatchActive = false;">
             <ChevronLeft :size="15" />
             <span>返回車隊總覽</span>
           </button>
@@ -416,7 +491,13 @@ import {
   Bot,
   Navigation,
   PackageCheck,
-  ChevronLeft
+  ChevronLeft,
+  GitFork,
+  PauseCircle,
+  Shuffle,
+  CheckCircle2,
+  Clock,
+  TrendingUp
 } from 'lucide-vue-next';
 import { 
   agvState, 
@@ -426,12 +507,21 @@ import {
   selectedVehicleId,
   dashboardActiveTab,
   is3DQuickDispatchActive,
-  requestCameraFollowVehicle
+  requestCameraFollowVehicle,
+  trafficMetrics,
+  setTrafficStrategy,
+  fleetVehicles,
+  selectVehicle,
+  currentAppMode
 } from '../services/websocket';
+import type { StateUpdateMessage } from '../types';
 
 defineEmits<{ (e: 'close'): void }>();
 
 const statusLabel = computed(() => {
+  if (agvState.task_info.is_traffic_wait) {
+    return '交管停等中';
+  }
   switch (agvState.task_info.status) {
     case 'DRIVING':
       return '行駛中';
@@ -444,6 +534,9 @@ const statusLabel = computed(() => {
 });
 
 const statusBadgeClass = computed(() => {
+  if (agvState.task_info.is_traffic_wait) {
+    return 'badge-traffic-wait';
+  }
   switch (agvState.task_info.status) {
     case 'DRIVING':
       return 'badge-driving';
@@ -455,14 +548,84 @@ const statusBadgeClass = computed(() => {
   }
 });
 
+function getVehicleStatus(veh?: any) {
+  if (!veh || !veh.task_info) {
+    return { label: '待命中', badgeClass: 'badge-idle' };
+  }
+  if (veh.task_info.is_traffic_wait) {
+    return { label: '交管停等', badgeClass: 'badge-traffic-wait' };
+  }
+  switch (veh.task_info.status) {
+    case 'DRIVING':
+      return { label: '行駛中', badgeClass: 'badge-driving' };
+    case 'ACTING':
+      return { label: '動作執行中', badgeClass: 'badge-acting' };
+    case 'IDLE':
+    default:
+      return { label: '待命中', badgeClass: 'badge-idle' };
+  }
+}
+
+const activeVehicleList = computed(() => {
+  const list: (StateUpdateMessage & { vehicle_id: string })[] = [];
+  const entries = Object.entries(fleetVehicles);
+  if (entries.length > 0) {
+    for (const [id, v] of entries) {
+      list.push({ ...v, vehicle_id: id });
+    }
+  } else if (agvState.agv_id) {
+    list.push({ ...agvState, vehicle_id: agvState.agv_id });
+  }
+  return list;
+});
+
+const fleetOnlineCount = computed(() => {
+  const count = Object.keys(fleetVehicles).length;
+  return count > 0 ? count : 1;
+});
+
+const fleetAverageBattery = computed(() => {
+  const vehs = Object.values(fleetVehicles);
+  if (vehs.length === 0) return agvState.battery.level;
+  const sum = vehs.reduce((acc, v) => acc + (v.battery?.level || 0), 0);
+  return sum / vehs.length;
+});
+
+const fleetStatusSummary = computed(() => {
+  const vehs = Object.values(fleetVehicles);
+  if (vehs.length === 0) {
+    if (agvState.task_info.is_traffic_wait) return '1 輛交管停等';
+    if (agvState.task_info.status === 'DRIVING') return '1 輛行駛中';
+    if (agvState.task_info.status === 'ACTING') return '1 輛作業中';
+    return '全體待命中';
+  }
+  const driving = vehs.filter(v => v.task_info?.status === 'DRIVING').length;
+  const acting = vehs.filter(v => v.task_info?.status === 'ACTING').length;
+  const waiting = vehs.filter(v => v.task_info?.is_traffic_wait).length;
+  if (waiting > 0) return `${waiting} 輛交管停等`;
+  if (driving > 0) return `${driving} 輛行駛中`;
+  if (acting > 0) return `${acting} 輛作業中`;
+  return '全體待命中';
+});
+
+const fleetCargoSummary = computed(() => {
+  const vehs = Object.values(fleetVehicles);
+  if (vehs.length === 0) {
+    return agvState.task_info.has_cargo ? '1 輛載貨中' : '全體空載';
+  }
+  const cargoCount = vehs.filter(v => v.task_info?.has_cargo).length;
+  return cargoCount > 0 ? `${cargoCount} 輛載貨中` : '全體空載';
+});
+
 function drillDownToVehicle(vehId: string) {
-  selectedVehicleId.value = vehId;
+  selectVehicle(vehId);
   dashboardActiveTab.value = 'vehicle';
   requestCameraFollowVehicle(vehId);
 }
 
 function openDispatchForVehicle(vehId: string) {
-  selectedVehicleId.value = vehId;
+  selectVehicle(vehId);
+  currentAppMode.value = 'simulate';
   is3DQuickDispatchActive.value = true;
   requestCameraFollowVehicle(vehId);
 }
@@ -628,6 +791,176 @@ function getBatteryModeClass(mode: string | undefined): string {
   font-size: 12px;
   font-weight: 600;
   color: #e2e8f0;
+}
+
+/* Strategy Selector Card */
+.strategy-selector-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.strategy-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.strategy-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.strategy-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #e2e8f0;
+  letter-spacing: 0.2px;
+}
+
+.strategy-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid;
+  letter-spacing: 0.3px;
+}
+
+.badge-wait {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.badge-reroute {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+.strategy-button-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.strat-btn {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.strat-btn:hover {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: #f1f5f9;
+}
+
+.strat-btn.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+}
+
+/* A/B Testing Telemetry KPI Section */
+.ab-metrics-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ab-metrics-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.ab-metrics-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+.ab-metrics-sub {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.ab-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.ab-kpi-card {
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: center;
+  align-items: center;
+}
+
+.ab-kpi-card .kpi-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.ab-kpi-card .kpi-title {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ab-kpi-card .kpi-value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px;
+}
+
+.ab-kpi-card .kpi-num {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.ab-kpi-card .kpi-unit {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ab-kpi-card .kpi-sub {
+  font-size: 9px;
+  color: #64748b;
+  white-space: nowrap;
 }
 
 /* Fleet Vehicles Section */
@@ -937,6 +1270,13 @@ function getBatteryModeClass(mode: string | undefined): string {
   background: rgba(245, 158, 11, 0.15);
   border-color: rgba(245, 158, 11, 0.4);
   color: #fbbf24;
+}
+
+.badge-traffic-wait {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
 }
 
 .pulsing-dot {

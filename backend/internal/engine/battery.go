@@ -18,8 +18,7 @@ type BatteryEngine struct {
 	movingBaseRate    float64 // 0.08 %/s at MaxSpeed
 	actingDrainRate   float64 // 0.35 %/s during pick/drop
 	cargoDrainFactor  float64 // 1.4x when loaded
-	chargingCCRate    float64 // 3.5 %/s during Constant Current phase
-	ccThreshold       float64 // 80.0 % threshold for CC -> CV transition
+	chargingRate      float64 // 0.6 %/s linear charging rate at 1x time scale
 }
 
 func NewBatteryEngine(initialLevel float64) *BatteryEngine {
@@ -35,8 +34,7 @@ func NewBatteryEngine(initialLevel float64) *BatteryEngine {
 		movingBaseRate:   0.08,
 		actingDrainRate:  0.35,
 		cargoDrainFactor: 1.4,
-		chargingCCRate:   3.5,
-		ccThreshold:      80.0,
+		chargingRate:     0.6,
 	}
 }
 
@@ -47,32 +45,21 @@ func (b *BatteryEngine) Update(status AGVStatus, action string, speed, maxSpeed 
 
 	if isCharging {
 		b.charging = true
-		if b.level >= 99.99 {
+		if b.level >= 100.0 {
 			b.level = 100.0
 			b.mode = "CHARGED"
 			b.drainRate = 0.0
 			return
 		}
 
-		// Realistic CC / CV charging curve:
-		// CC (Constant Current): fast linear charge up to 80%
-		// CV (Constant Voltage): exponential decay of current from 80% to 100%
-		if b.level < b.ccThreshold {
-			b.mode = "CC_CHARGING"
-			b.drainRate = b.chargingCCRate // positive rate means charging
-			b.level += b.chargingCCRate * dt
-		} else {
-			b.mode = "CV_CHARGING"
-			// Asymptotic decay factor based on remaining capacity
-			decay := (100.0 - b.level) / (100.0 - b.ccThreshold)
-			rate := math.Max(0.15, b.chargingCCRate*decay)
-			b.drainRate = rate
-			b.level += rate * dt
-		}
+		b.mode = "CHARGING"
+		b.drainRate = b.chargingRate // positive rate means charging
+		b.level += b.chargingRate * dt
 
 		if b.level > 100.0 {
 			b.level = 100.0
 			b.mode = "CHARGED"
+			b.drainRate = 0.0
 		}
 		return
 	}

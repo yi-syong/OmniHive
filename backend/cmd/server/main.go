@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"omnihive/backend/internal/engine"
 	"omnihive/backend/internal/model"
@@ -51,6 +52,7 @@ func main() {
 
 	// State caching for newly connected WebSocket clients
 	var stateMu sync.RWMutex
+	cachedStates := make(map[string]model.WsStateUpdateMessage)
 	cachedState := model.WsStateUpdateMessage{
 		Type:  "state_update",
 		AgvID: agvID,
@@ -81,15 +83,41 @@ func main() {
 		EdgeStates:  []string{},
 		PassedEdges: []string{},
 	}
+	cachedStates[agvID] = cachedState
 
 	var hub *ws.Hub
 	var mqttBridge *mqtt.MqttBridge
+	var fleetMgr *engine.FleetManager
+
+	// Initialize Fleet Traffic Master Controller
+	fleetMgr = engine.NewFleetManager(
+		layoutMgr,
+		func(targetAgvID string, order model.Order) {
+			if mqttBridge != nil {
+				_ = mqttBridge.PublishVDAOrder(targetAgvID, order)
+			}
+		},
+		func(metrics engine.FleetMetrics) {
+			if hub != nil {
+				hub.BroadcastJSON(metrics)
+			}
+		},
+	)
 
 	// Callback when simulator publishes high-frequency 10Hz kinematics telemetry
 	onTelemetryReceived := func(msg model.WsStateUpdateMessage) {
 		stateMu.Lock()
+		vehID := msg.AgvID
+		if vehID == "" {
+			vehID = agvID
+		}
+		cachedStates[vehID] = msg
 		cachedState = msg
 		stateMu.Unlock()
+
+		if fleetMgr != nil {
+			fleetMgr.OnVehicleTelemetry(msg)
+		}
 
 		if hub != nil {
 			hub.BroadcastStateUpdate(msg)
@@ -117,21 +145,15 @@ func main() {
 
 	// Callback when WebSocket receives a dispatch_order from frontend
 	onWsOrderReceived := func(msg model.WsDispatchOrderMessage) {
-		log.Printf("[DISPATCH] Received WebSocket dispatch request: Target=%s, Action=%s, Steps=%d. Forwarding via VDA 5050 MQTT...",
-			msg.TargetNode, msg.Action, len(msg.Steps))
+		targetAgv := msg.AgvID
+		if targetAgv == "" {
+			targetAgv = agvID
+		}
+		log.Printf("[DISPATCH] Dispatching mission to FleetManager: AGV=%s, Target=%s, Action=%s, Steps=%d",
+			targetAgv, msg.TargetNode, msg.Action, len(msg.Steps))
 
-		if mqttBridge != nil {
-			var err error
-			if len(msg.Steps) > 0 {
-				err = mqttBridge.TranslateAndPublishOrderWithSteps(msg.Steps)
-			} else {
-				err = mqttBridge.TranslateAndPublishOrder(msg.TargetNode, msg.Action)
-			}
-			if err != nil {
-				log.Printf("[DISPATCH ERROR] Failed to publish VDA 5050 order via MQTT: %v", err)
-			}
-		} else {
-			log.Printf("[DISPATCH ERROR] MQTT Bridge not available")
+		if err := fleetMgr.DispatchMission(targetAgv, msg.TargetNode, msg.Action, msg.Steps); err != nil {
+			log.Printf("[DISPATCH ERROR] FleetManager dispatch failed: %v", err)
 		}
 	}
 
@@ -149,7 +171,43 @@ func main() {
 		defer stateMu.RUnlock()
 		return cachedState
 	})
+
+	hub.SetInitialStatesProvider(func() []model.WsStateUpdateMessage {
+		stateMu.RLock()
+		defer stateMu.RUnlock()
+		list := make([]model.WsStateUpdateMessage, 0, len(cachedStates))
+		for _, s := range cachedStates {
+			list = append(list, s)
+		}
+		return list
+	})
+
+	hub.SetStrategyCallback(func(strategy string) {
+		log.Printf("[CONTROL] Setting traffic strategy to: %s", strategy)
+		if fleetMgr != nil {
+			_ = fleetMgr.SetTrafficStrategy(strategy)
+		}
+	})
+
 	go hub.Run()
+
+	// Broadcast A/B Testing Metrics periodically at 1Hz
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if fleetMgr != nil && hub != nil {
+				stateMu.RLock()
+				vCount := len(cachedStates)
+				stateMu.RUnlock()
+				if vCount == 0 {
+					vCount = 1
+				}
+				metrics := fleetMgr.GetMetricsCollector().GetMetrics(vCount)
+				hub.BroadcastJSON(metrics)
+			}
+		}
+	}()
 
 	// HTTP routes
 	mux := http.NewServeMux()
