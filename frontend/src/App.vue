@@ -70,6 +70,17 @@
           <span class="badge-text">未儲存變更</span>
         </div>
 
+        <!-- 一鍵解除卡死 (緊急處置按鈕，僅在模擬監控模式顯示) -->
+        <button 
+          v-if="currentAppMode === 'simulate'"
+          class="hud-nav-btn emergency-btn"
+          @click="handleGlobalFleetReset"
+          title="緊急解除全場路權死鎖與卡死任務，釋放車隊回歸待命 (一鍵脫困)"
+        >
+          <ShieldAlert :size="14" class="text-rose" />
+          <span class="btn-text">一鍵解除卡死</span>
+        </button>
+
         <!-- 功能 1 切換按鈕: 車況儀表板 (僅在模擬監控模式顯示) -->
         <button 
           v-if="currentAppMode === 'simulate'"
@@ -173,12 +184,20 @@ import {
   currentTimeScale,
   setTimeScale,
   hasUnsavedChanges,
-  clearLayoutDirty
+  clearLayoutDirty,
+  resetFleet
 } from './services/websocket';
 
 const sceneRef = ref<any>(null);
 const showDashboard = ref(true);
 const showUnsavedModal = ref(false);
+
+function handleGlobalFleetReset() {
+  if (confirm('🚨 確定要一鍵解除全場死鎖？\n系統將立即釋放所有車輛的鎖定路權，中斷停等任務並重設車隊至待命狀態。')) {
+    resetFleet();
+    showToast(ShieldAlert, '🚨 已發送全場脫困指令，所有車輛已解除死鎖並回歸待命！', 'warn');
+  }
+}
 
 const toastMessage = ref<string | null>(null);
 const toastType = ref<'success' | 'info' | 'warn'>('info');
@@ -472,6 +491,23 @@ onMounted(() => {
   border-color: rgba(56, 189, 248, 0.45);
   color: #38bdf8;
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+}
+
+.emergency-btn {
+  background: rgba(225, 29, 72, 0.15);
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #fda4af;
+}
+
+.emergency-btn:hover {
+  background: rgba(225, 29, 72, 0.28);
+  border-color: rgba(244, 63, 94, 0.6);
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(244, 63, 94, 0.35);
+}
+
+.text-rose {
+  color: #fb7185;
 }
 
 .tech-badge {

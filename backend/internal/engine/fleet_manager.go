@@ -118,6 +118,16 @@ func (fm *FleetManager) DispatchMission(agvID, targetNode, action string, steps 
 		return fmt.Errorf("no target node specified in mission dispatch")
 	}
 
+	// Validate destination is not currently occupied by another stationary/idle vehicle
+	for otherAgv, otherNode := range fm.agvCurrentNodes {
+		if otherAgv != agvID && otherNode == destinationNode {
+			otherMission, hasOtherMission := fm.activeMissions[otherAgv]
+			if !hasOtherMission || otherMission.IsCompleted {
+				return fmt.Errorf("站點 %s 目前已被車輛 %s 停靠佔用，無法派送！請先將該車移開或選擇其他站點", destinationNode, otherAgv)
+			}
+		}
+	}
+
 	// Validate node function vs action compatibility (Charge vs Pick/Drop vs Transit/Wait)
 	if destObj, ok := fm.layoutMgr.GetNode(destinationNode); ok {
 		if (finalAction == "pick" || finalAction == "drop") && (destObj.Function == "Idle/Charge" || destObj.Function == "Wait" || destObj.Function == "Transit") {
@@ -359,6 +369,22 @@ func (fm *FleetManager) OnVehicleTelemetry(msg model.WsStateUpdateMessage) {
 			// AGV must wait at Base terminus; strategy records wait
 			strategy.RecordVehicleWait(agvID, 0.1*msg.TimeScale)
 
+			// Deadlock auto-detection:
+			// If vehicle has been waiting in traffic for > 10.0 seconds:
+			if msg.TaskInfo.IsTrafficWait && msg.TaskInfo.WaitSeconds > 10.0 && len(horizonIDs) > 0 {
+				nextBlockedNode := horizonIDs[0]
+				isLocked, lockerID := fm.registry.IsNodeLocked(nextBlockedNode)
+				if isLocked && lockerID != agvID {
+					lockerMission, lockerActive := fm.activeMissions[lockerID]
+					if !lockerActive || lockerMission.IsCompleted {
+						log.Printf("[DEADLOCK DETECTOR] AGV %s waiting for %s held by idle vehicle %s (wait: %.1fs). Auto-resolving deadlock...",
+							agvID, nextBlockedNode, lockerID, msg.TaskInfo.WaitSeconds)
+						fm.cancelMissionInternal(agvID, fmt.Sprintf("交管死鎖自動解除：前方站點 %s 被閒置車輛 %s 佔用無解，已中止任務釋放路權", nextBlockedNode, lockerID))
+						return
+					}
+				}
+			}
+
 		case DecisionReroute:
 			// Dynamic detour: replace unreleased horizon with suggested detour path
 			if len(decision.SuggestedPath) > 0 {
@@ -423,6 +449,100 @@ func (fm *FleetManager) OnVehicleTelemetry(msg model.WsStateUpdateMessage) {
 			}
 		}
 	}
+}
+
+// CancelMission cancels an active mission for an AGV and releases associated path locks.
+func (fm *FleetManager) CancelMission(agvID, reason string) {
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
+	fm.cancelMissionInternal(agvID, reason)
+}
+
+func (fm *FleetManager) cancelMissionInternal(agvID, reason string) {
+	currNode := fm.agvCurrentNodes[agvID]
+	if mission, ok := fm.activeMissions[agvID]; ok {
+		mission.IsCompleted = true
+		delete(fm.activeMissions, agvID)
+	}
+
+	// Release all locks held by this AGV except current position
+	fm.registry.ReleaseAllByAGV(agvID)
+	if currNode != "" {
+		fm.registry.TryLockNode(currNode, agvID)
+	}
+	fm.strategyMgr.GetCurrentStrategy().ResetVehicleWait(agvID)
+
+	// Publish empty VDA 5050 order to notify vehicle simulator of cancellation
+	if fm.publishVDAOrder != nil {
+		now := time.Now().UTC()
+		cancelOrder := model.Order{
+			Header: model.Header{
+				HeaderID:     uint32(now.Unix()),
+				Timestamp:    now,
+				Version:      "2.1.0",
+				Manufacturer: "OmniHive",
+				SerialNumber: agvID,
+			},
+			OrderID:       fmt.Sprintf("cancel-%s", uuid.New().String()[:6]),
+			OrderUpdateID: 0,
+			Nodes:         []model.Node{},
+			Edges:         []model.Edge{},
+		}
+		fm.publishVDAOrder(agvID, cancelOrder)
+	}
+
+	log.Printf("[FLEET MASTER] Mission cancelled for %s: %s", agvID, reason)
+	fm.broadcastCurrentMetrics()
+}
+
+// ResetFleetLocks resets all traffic locks and missions across the entire fleet.
+func (fm *FleetManager) ResetFleetLocks() {
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
+
+	// Clear all active missions
+	for agvID := range fm.activeMissions {
+		delete(fm.activeMissions, agvID)
+	}
+
+	// Release all locks
+	nodeLocks, edgeLocks := fm.registry.GetSnapshot()
+	for n, holder := range nodeLocks {
+		fm.registry.UnlockNode(n, holder)
+	}
+	for e, holder := range edgeLocks {
+		fm.registry.UnlockEdge(e, holder)
+	}
+
+	// Retain lock only for each AGV's current parked node
+	for agvID, nodeID := range fm.agvCurrentNodes {
+		if nodeID != "" {
+			fm.registry.TryLockNode(nodeID, agvID)
+		}
+		fm.strategyMgr.GetCurrentStrategy().ResetVehicleWait(agvID)
+
+		// Send cancel order to reset vehicle to IDLE
+		if fm.publishVDAOrder != nil {
+			now := time.Now().UTC()
+			cancelOrder := model.Order{
+				Header: model.Header{
+					HeaderID:     uint32(now.Unix()),
+					Timestamp:    now,
+					Version:      "2.1.0",
+					Manufacturer: "OmniHive",
+					SerialNumber: agvID,
+				},
+				OrderID:       fmt.Sprintf("reset-%s", uuid.New().String()[:6]),
+				OrderUpdateID: 0,
+				Nodes:         []model.Node{},
+				Edges:         []model.Edge{},
+			}
+			fm.publishVDAOrder(agvID, cancelOrder)
+		}
+	}
+
+	log.Printf("[FLEET MASTER] Successfully reset all fleet locks and missions.")
+	fm.broadcastCurrentMetrics()
 }
 
 func (fm *FleetManager) broadcastCurrentMetrics() {

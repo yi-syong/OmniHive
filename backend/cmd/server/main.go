@@ -154,6 +154,11 @@ func main() {
 
 		if err := fleetMgr.DispatchMission(targetAgv, msg.TargetNode, msg.Action, msg.Steps); err != nil {
 			log.Printf("[DISPATCH ERROR] FleetManager dispatch failed: %v", err)
+			hub.BroadcastJSON(map[string]interface{}{
+				"type":   "dispatch_error",
+				"agv_id": targetAgv,
+				"error":  err.Error(),
+			})
 		}
 	}
 
@@ -186,6 +191,26 @@ func main() {
 		log.Printf("[CONTROL] Setting traffic strategy to: %s", strategy)
 		if fleetMgr != nil {
 			_ = fleetMgr.SetTrafficStrategy(strategy)
+		}
+	})
+
+	hub.SetCancelCallback(func(targetAgv, reason string) {
+		log.Printf("[CONTROL] Cancelling mission for %s: %s", targetAgv, reason)
+		if fleetMgr != nil {
+			fleetMgr.CancelMission(targetAgv, reason)
+		}
+		if mqttBridge != nil {
+			_ = mqttBridge.PublishCancelOrder(targetAgv, reason)
+		}
+	})
+
+	hub.SetResetCallback(func() {
+		log.Printf("[CONTROL] Resetting entire fleet locks and missions")
+		if fleetMgr != nil {
+			fleetMgr.ResetFleetLocks()
+		}
+		if mqttBridge != nil {
+			_ = mqttBridge.PublishFleetReset()
 		}
 	})
 
@@ -270,6 +295,52 @@ func main() {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		layout := layoutMgr.GetLayout()
 		json.NewEncoder(w).Encode(layout.Nodes)
+	})
+
+	// POST /api/fleet/cancel
+	mux.HandleFunc("/api/fleet/cancel", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		var payload struct {
+			AgvID  string `json:"agv_id"`
+			Reason string `json:"reason"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		if payload.AgvID == "" {
+			payload.AgvID = agvID
+		}
+		if fleetMgr != nil {
+			fleetMgr.CancelMission(payload.AgvID, payload.Reason)
+		}
+		if mqttBridge != nil {
+			_ = mqttBridge.PublishCancelOrder(payload.AgvID, payload.Reason)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "message": "mission cancelled", "agv_id": payload.AgvID})
+	})
+
+	// POST /api/fleet/reset
+	mux.HandleFunc("/api/fleet/reset", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if fleetMgr != nil {
+			fleetMgr.ResetFleetLocks()
+		}
+		if mqttBridge != nil {
+			_ = mqttBridge.PublishFleetReset()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "message": "fleet reset complete"})
 	})
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

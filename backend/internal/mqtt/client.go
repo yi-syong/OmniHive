@@ -244,6 +244,34 @@ func (b *MqttBridge) PublishVDAOrder(agvID string, order model.Order) error {
 	return nil
 }
 
+// PublishCancelOrder publishes a mission cancel signal for a vehicle
+func (b *MqttBridge) PublishCancelOrder(agvID, reason string) error {
+	if b.client == nil || !b.client.IsConnected() {
+		return fmt.Errorf("MQTT broker not connected")
+	}
+	payload := map[string]string{
+		"agv_id": agvID,
+		"reason": reason,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	token := b.client.Publish("omnihive/control/cancel", 1, false, data)
+	token.Wait()
+	return token.Error()
+}
+
+// PublishFleetReset publishes a global fleet reset signal to all simulators
+func (b *MqttBridge) PublishFleetReset() error {
+	if b.client == nil || !b.client.IsConnected() {
+		return fmt.Errorf("MQTT broker not connected")
+	}
+	token := b.client.Publish("omnihive/control/reset", 1, false, []byte(`{"type":"reset"}`))
+	token.Wait()
+	return token.Error()
+}
+
 func (b *MqttBridge) Close() {
 	if b.client != nil && b.client.IsConnected() {
 		b.client.Disconnect(250)

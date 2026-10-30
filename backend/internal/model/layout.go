@@ -7,9 +7,10 @@ type LayoutNode struct {
 	X           float64 `json:"x"`
 	Y           float64 `json:"y"`
 	Z           float64 `json:"z"`
-	Function    string  `json:"function"`    // "Idle/Charge", "Transit", "Pick-up", "Drop-off"
+	Function    string  `json:"function"`    // "Idle/Charge", "Transit", "Pick-up", "Drop-off", "Cargo"
 	Description string  `json:"description"`
 	HasCargo    bool    `json:"has_cargo"`
+	RotationY   float64 `json:"rotationY,omitempty"` // Heading angle around Y axis (in radians)
 }
 
 // LayoutEdge represents a directional or bidirectional path connecting two nodes

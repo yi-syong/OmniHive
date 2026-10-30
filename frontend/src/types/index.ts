@@ -55,6 +55,22 @@ export interface DispatchOrderMessage {
   steps?: DispatchOrderStep[];
 }
 
+export interface CancelOrderMessage {
+  type: 'cancel_order';
+  agv_id: string;
+  reason?: string;
+}
+
+export interface ResetFleetMessage {
+  type: 'reset_fleet';
+}
+
+export interface DispatchErrorMessage {
+  type: 'dispatch_error';
+  agv_id: string;
+  error: string;
+}
+
 export interface SetTimeScaleMessage {
   type: 'set_time_scale';
   time_scale: number;
@@ -69,6 +85,7 @@ export interface LayoutNode {
   function: string;
   description: string;
   has_cargo?: boolean;
+  rotationY?: number;
 }
 
 export interface LayoutEdge {
@@ -96,7 +113,7 @@ export interface FactoryLayout {
 }
 
 export type AppMode = 'simulate' | 'edit';
-export type EditorTool = 'select' | 'add_node' | 'add_edge' | 'add_prop' | 'delete';
+export type EditorTool = 'select' | 'add_node' | 'add_edge' | 'delete';
 
 export type TrafficStrategy = 'wait' | 'reroute';
 

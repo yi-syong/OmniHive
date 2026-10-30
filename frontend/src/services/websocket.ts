@@ -4,6 +4,9 @@ import type {
   DispatchOrderMessage, 
   DispatchOrderStep,
   DispatchAction,
+  CancelOrderMessage,
+  ResetFleetMessage,
+  DispatchErrorMessage,
   SetTimeScaleMessage, 
   FactoryLayout,
   AppMode,
@@ -14,6 +17,15 @@ import type {
 
 export const isConnected = ref(false);
 export const connectionError = ref<string | null>(null);
+export const lastDispatchError = ref<string | null>(null);
+const dispatchErrorListeners: ((err: string, agvId: string) => void)[] = [];
+export function onDispatchError(cb: (err: string, agvId: string) => void) {
+  dispatchErrorListeners.push(cb);
+  return () => {
+    const idx = dispatchErrorListeners.indexOf(cb);
+    if (idx !== -1) dispatchErrorListeners.splice(idx, 1);
+  };
+}
 export const packetCount = ref(0);
 export const lastReceivedTime = ref<number>(Date.now());
 export const currentTimeScale = ref<number>(1.0);
@@ -196,6 +208,13 @@ export function connectWebSocket(url?: string) {
             trafficMetrics.total_wait_time_sec = metrics.total_wait_time_sec;
             trafficMetrics.avg_extra_cost_pct = metrics.avg_extra_cost_pct;
             trafficMetrics.active_vehicles = metrics.active_vehicles;
+          } else if (msg.type === 'dispatch_error') {
+            const err = msg as DispatchErrorMessage;
+            lastDispatchError.value = err.error;
+            console.warn('[WebSocket] Dispatch error received:', err.error);
+            for (const cb of dispatchErrorListeners) {
+              cb(err.error, err.agv_id);
+            }
           }
         }
       } catch (err) {
@@ -269,6 +288,65 @@ export function setTimeScale(scale: number) {
   socket.send(JSON.stringify(payload));
   console.log('[WebSocket] Set simulation time scale:', scale);
   return true;
+}
+
+export function cancelOrder(agvId: string = 'AGV-001', reason: string = '使用者中止任務') {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    console.warn('[WebSocket] Socket not connected, attempting REST cancel fallback');
+    return apiCancelOrder(agvId, reason);
+  }
+
+  const payload: CancelOrderMessage = {
+    type: 'cancel_order',
+    agv_id: agvId,
+    reason
+  };
+
+  socket.send(JSON.stringify(payload));
+  console.log('[WebSocket] Cancelled order for:', agvId, reason);
+  return true;
+}
+
+export function resetFleet() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    console.warn('[WebSocket] Socket not connected, attempting REST reset fallback');
+    return apiResetFleet();
+  }
+
+  const payload: ResetFleetMessage = {
+    type: 'reset_fleet'
+  };
+
+  socket.send(JSON.stringify(payload));
+  console.log('[WebSocket] Reset entire fleet locks & missions');
+  return true;
+}
+
+export async function apiCancelOrder(agvId: string = 'AGV-001', reason: string = '使用者中止任務'): Promise<boolean> {
+  try {
+    const res = await fetch(`${getApiBase()}/fleet/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agv_id: agvId, reason })
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('[API] Failed to cancel order via REST:', err);
+    return false;
+  }
+}
+
+export async function apiResetFleet(): Promise<boolean> {
+  try {
+    const res = await fetch(`${getApiBase()}/fleet/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('[API] Failed to reset fleet via REST:', err);
+    return false;
+  }
 }
 
 // REST API for Layout Persistence

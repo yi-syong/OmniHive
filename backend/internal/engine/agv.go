@@ -103,6 +103,10 @@ type AGVEngine struct {
 	// Layout and pathfinding manager
 	layoutMgr *LayoutManager
 
+	orderCtxMu         sync.Mutex
+	currentOrderCtx    context.Context
+	currentOrderCancel context.CancelFunc
+
 	orderQueue    chan AGVOrder
 	onWsBroadcast func(msg model.WsStateUpdateMessage)
 	onMqttPublish func(state model.State)
@@ -113,6 +117,7 @@ type AGVEngine struct {
 
 func NewAGVEngine(id string, layoutMgr *LayoutManager, onWsBroadcast func(model.WsStateUpdateMessage), onMqttPublish func(model.State)) *AGVEngine {
 	ctx, cancel := context.WithCancel(context.Background())
+	orderCtx, orderCancel := context.WithCancel(ctx)
 
 	initX, initY, initZ := 0.0, 0.0, 0.0
 	initNodeID := "Node-01"
@@ -148,6 +153,8 @@ func NewAGVEngine(id string, layoutMgr *LayoutManager, onWsBroadcast func(model.
 		activeEdgeStates:     []string{},
 		passedEdges:          []string{},
 		layoutMgr:            layoutMgr,
+		currentOrderCtx:      orderCtx,
+		currentOrderCancel:   orderCancel,
 		orderQueue:           make(chan AGVOrder, 10),
 		onWsBroadcast:        onWsBroadcast,
 		onMqttPublish:        onMqttPublish,
@@ -232,8 +239,80 @@ func (e *AGVEngine) SubmitOrder(order AGVOrder) {
 	}
 }
 
+// AbortCurrentOrder immediately interrupts any ongoing motion, clears waypoint goals, and reverts vehicle to IDLE.
+func (e *AGVEngine) AbortCurrentOrder(reason string) {
+	e.orderCtxMu.Lock()
+	if e.currentOrderCancel != nil {
+		e.currentOrderCancel()
+	}
+	e.currentOrderCtx, e.currentOrderCancel = context.WithCancel(e.ctx)
+	e.orderCtxMu.Unlock()
+
+	e.mu.Lock()
+	e.orderWaypoints = nil
+	e.activeNodeStates = nil
+	e.activeEdgeStates = nil
+	e.passedEdges = nil
+	e.currentSpeed = 0.0
+	e.status = StatusIdle
+	e.isTrafficWaiting = false
+	e.trafficWaitSeconds = 0.0
+	e.targetNode = e.currentNode
+	e.currentAction = "none"
+	e.displayMsg = fmt.Sprintf("[任務中止] %s", reason)
+	e.mu.Unlock()
+
+	// Drain any pending orders in vdaOrderQueue
+	for {
+		select {
+		case <-e.vdaOrderQueue:
+		default:
+			goto drained
+		}
+	}
+drained:
+
+	// Wake up any waiting loops
+	select {
+	case e.orderUpdateNotify <- struct{}{}:
+	default:
+	}
+
+	e.triggerMqttPublish()
+	log.Printf("[Engine %s] AbortCurrentOrder executed: %s", e.id, reason)
+}
+
+// ResetVehicleState resets vehicle state and optionally repositions to a given node.
+func (e *AGVEngine) ResetVehicleState(nodeID string) {
+	e.AbortCurrentOrder("系統路權重設")
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	targetNode := nodeID
+	if targetNode == "" {
+		targetNode = e.currentNode
+	}
+	if node, ok := e.layoutMgr.GetNode(targetNode); ok {
+		e.x = node.X
+		e.y = node.Y
+		e.z = node.Z
+		e.currentNode = targetNode
+		e.previousNode = targetNode
+		e.targetNode = targetNode
+		e.displayMsg = fmt.Sprintf("[待命] 系統就緒，停靠於 %s", targetNode)
+	}
+	e.triggerMqttPublish()
+	log.Printf("[Engine %s] ResetVehicleState completed at node %s", e.id, targetNode)
+}
+
 // SubmitVDAOrder submits or updates a VDA 5050 Order with Base/Horizon releases
 func (e *AGVEngine) SubmitVDAOrder(order model.Order) {
+	// If order has no nodes, treat as order cancellation
+	if len(order.Nodes) == 0 {
+		e.AbortCurrentOrder("收到取消訂單 (Empty Nodes)")
+		return
+	}
+
 	e.mu.Lock()
 	if e.orderID == order.OrderID && order.OrderUpdateID > e.currentOrderUpdateID {
 		e.currentOrderUpdateID = order.OrderUpdateID
@@ -256,12 +335,29 @@ func (e *AGVEngine) SubmitVDAOrder(order model.Order) {
 		}
 		return
 	}
+
+	// New order: if currently driving or traffic waiting, preempt previous order
+	isBusy := (e.status == StatusDriving || e.isTrafficWaiting)
 	e.mu.Unlock()
+
+	if isBusy {
+		log.Printf("[AGV %s] Preempting current order for new Order %s", e.id, order.OrderID)
+		e.orderCtxMu.Lock()
+		if e.currentOrderCancel != nil {
+			e.currentOrderCancel()
+		}
+		e.orderCtxMu.Unlock()
+	}
 
 	select {
 	case e.vdaOrderQueue <- order:
 	default:
-		log.Printf("[AGV %s WARNING] VDA order queue full", e.id)
+		// Drain older queued order if full
+		select {
+		case <-e.vdaOrderQueue:
+		default:
+		}
+		e.vdaOrderQueue <- order
 	}
 }
 
@@ -308,6 +404,15 @@ func (e *AGVEngine) processOrder(order AGVOrder) {
 }
 
 func (e *AGVEngine) processVDAOrder(order model.Order) {
+	e.orderCtxMu.Lock()
+	if e.currentOrderCancel != nil {
+		e.currentOrderCancel()
+	}
+	orderCtx, orderCancel := context.WithCancel(e.ctx)
+	e.currentOrderCtx = orderCtx
+	e.currentOrderCancel = orderCancel
+	e.orderCtxMu.Unlock()
+
 	e.mu.Lock()
 	e.orderID = order.OrderID
 	e.currentOrderUpdateID = order.OrderUpdateID
@@ -420,23 +525,33 @@ func (e *AGVEngine) processVDAOrder(order model.Order) {
 	e.triggerMqttPublish()
 
 	for i, wp := range waypoints {
-		isFinal := (i == len(waypoints)-1)
+		if orderCtx.Err() != nil {
+			return
+		}
+		isFinal := (i == len(waypoints) - 1)
 		edgeID := ""
 		if i < len(e.activeEdgeStates) {
 			edgeID = e.activeEdgeStates[i]
 		}
-		e.navigateToWaypoint(wp, isFinal, edgeID)
-		if e.ctx.Err() != nil {
+		e.navigateToWaypoint(orderCtx, wp, isFinal, edgeID)
+		if orderCtx.Err() != nil || e.ctx.Err() != nil {
 			return
 		}
+	}
+
+	if orderCtx.Err() != nil {
+		return
 	}
 
 	e.executeArrivalAction(finalAction, finalTarget)
 }
 
-func (e *AGVEngine) navigateToWaypoint(wp AGVWaypoint, isFinal bool, edgeID string) {
+func (e *AGVEngine) navigateToWaypoint(orderCtx context.Context, wp AGVWaypoint, isFinal bool, edgeID string) {
 	// 1. Ensure waypoint is released (Base) before entering!
 	for {
+		if orderCtx.Err() != nil {
+			return
+		}
 		e.mu.RLock()
 		released := wp.Released
 		for _, item := range e.orderWaypoints {
@@ -465,6 +580,8 @@ func (e *AGVEngine) navigateToWaypoint(wp AGVWaypoint, isFinal bool, edgeID stri
 		e.triggerMqttPublish()
 
 		select {
+		case <-orderCtx.Done():
+			return
 		case <-e.ctx.Done():
 			return
 		case <-e.orderUpdateNotify:
@@ -482,9 +599,26 @@ func (e *AGVEngine) navigateToWaypoint(wp AGVWaypoint, isFinal bool, edgeID stri
 
 	targetX := wp.X
 	targetZ := wp.Z
+	isDockingAction := isFinal && (wp.Action == "pick" || wp.Action == "drop")
+
+	// If docking at cargo station, stop at safe standoff (1.25m in front of pallet)
+	if isDockingAction {
+		dx0 := wp.X - e.x
+		dz0 := wp.Z - e.z
+		d0 := math.Hypot(dx0, dz0)
+		if d0 > 0.01 {
+			ux := dx0 / d0
+			uz := dz0 / d0
+			standoff := 1.25
+			targetX = wp.X - standoff*ux
+			targetZ = wp.Z - standoff*uz
+		}
+	}
 
 	for {
 		select {
+		case <-orderCtx.Done():
+			return
 		case <-e.ctx.Done():
 			return
 		case <-ticker.C:
@@ -503,12 +637,12 @@ func (e *AGVEngine) navigateToWaypoint(wp AGVWaypoint, isFinal bool, edgeID stri
 				for _, other := range poses {
 					d := math.Hypot(other.X-e.x, other.Z-e.z)
 					if d < 1.8 {
-						// Collision hazard detected!
-						// Deterministic resolution:
-						// If other is parked at our target node -> yield.
-						// If both moving -> larger ID yields to smaller ID.
-						// If other is stopped -> yield.
-						if other.NodeID == wp.NodeID || e.id > other.ID || other.Speed == 0 {
+						// Deterministic collision avoidance without mutual deadlock:
+						// 1. If other is parked directly at our waypoint node -> yield.
+						// 2. If other is stopped and at our current node -> yield.
+						// 3. If both are active, strict alphanumeric priority: larger ID yields to smaller ID.
+						// (Never yield solely on other.Speed == 0 when other is active, because other may have stopped to yield to us!)
+						if other.NodeID == wp.NodeID || (other.Speed == 0 && other.NodeID == e.currentNode) || e.id > other.ID {
 							tooClose = true
 							conflictID = other.ID
 							conflictDist = d
@@ -546,6 +680,19 @@ func (e *AGVEngine) navigateToWaypoint(wp AGVWaypoint, isFinal bool, edgeID stri
 				decelDist = (e.currentSpeed*e.currentSpeed - targetSpeedAtWaypoint*targetSpeedAtWaypoint) / (2.0 * DecelRate)
 			}
 
+			// Determine maximum allowable speed:
+			// - If laden with cargo: cap at 1.25 m/s to prevent throwing cargo off
+			// - If approaching docking action: cap at 0.60 m/s creep speed
+			maxAllowedSpeed := MaxSpeedMetric
+			if e.hasCargo {
+				maxAllowedSpeed = 1.25
+			}
+			if isDockingAction && dist < 2.5 {
+				if maxAllowedSpeed > 0.60 {
+					maxAllowedSpeed = 0.60
+				}
+			}
+
 			// Adjust velocity with acceleration/deceleration
 			if dist <= decelDist+0.2 {
 				// Braking zone
@@ -560,22 +707,33 @@ func (e *AGVEngine) navigateToWaypoint(wp AGVWaypoint, isFinal bool, edgeID stri
 					}
 				}
 			} else {
-				// Acceleration zone up to MaxSpeed (4.17 m/s)
-				if e.currentSpeed < MaxSpeedMetric {
+				if e.currentSpeed < maxAllowedSpeed {
 					e.currentSpeed += AccelRate * dt
-					if e.currentSpeed > MaxSpeedMetric {
-						e.currentSpeed = MaxSpeedMetric
+					if e.currentSpeed > maxAllowedSpeed {
+						e.currentSpeed = maxAllowedSpeed
+					}
+				} else if e.currentSpeed > maxAllowedSpeed {
+					e.currentSpeed -= DecelRate * dt
+					if e.currentSpeed < maxAllowedSpeed {
+						e.currentSpeed = maxAllowedSpeed
 					}
 				}
 			}
 
 			step := e.currentSpeed * dt
 
-			// Cruising travel direction:
-			// In real industrial AGVs, during transit/walking the forks trail in the rear (chassis leads).
-			// Since forks are at local +Z in agv.glb, traveling forward means local -Z moves toward (dx, dz).
-			// Therefore: theta = normalizeAngle(math.Atan2(dx, dz) + math.Pi)
-			e.theta = normalizeAngle(math.Atan2(dx, dz) + math.Pi)
+			// Travel direction:
+			// - Normal cruising between waypoints: chassis leads forward, forks trail behind in the rear!
+			// - Final docking approach to pick/drop: forks turn forward to face station pallet!
+			if isDockingAction {
+				if targetNode, ok := e.layoutMgr.GetNode(wp.NodeID); ok && (targetNode.Function == "Cargo" || targetNode.Function == "Pick-up" || targetNode.Function == "Drop-off") {
+					e.theta = normalizeAngle(targetNode.RotationY)
+				} else {
+					e.theta = normalizeAngle(math.Atan2(wp.X-e.x, wp.Z-e.z))
+				}
+			} else {
+				e.theta = normalizeAngle(math.Atan2(dx, dz) + math.Pi)
+			}
 
 			// Step towards waypoint
 			if dist <= step {
@@ -620,16 +778,45 @@ func (e *AGVEngine) executeArrivalAction(action string, targetNode string) {
 	e.currentNode = targetNode
 	scale := e.timeScale
 
-	// When arriving at station for pick/drop: rotate vehicle so forks (+Z) face towards target station pallet!
+	var currNodeX, currNodeZ, prevNodeX, prevNodeZ float64
+	hasNodePos := false
+	var targetNodeObj *model.LayoutNode
+	if currNode, ok := e.layoutMgr.GetNode(targetNode); ok {
+		currNodeX = currNode.X
+		currNodeZ = currNode.Z
+		hasNodePos = true
+		targetNodeObj = &currNode
+	}
+	if e.previousNode != "" {
+		if prevNode, ok := e.layoutMgr.GetNode(e.previousNode); ok {
+			prevNodeX = prevNode.X
+			prevNodeZ = prevNode.Z
+		}
+	} else if hasNodePos {
+		prevNodeX = e.x
+		prevNodeZ = e.z
+	}
+
+	// Calculate docking approach unit vector (from approach path into pallet)
+	dx := currNodeX - prevNodeX
+	dz := currNodeZ - prevNodeZ
+	dLen := math.Hypot(dx, dz)
+	ux := 0.0
+	uz := 1.0
+	if dLen > 0.01 {
+		ux = dx / dLen
+		uz = dz / dLen
+	}
+
 	if action == "pick" || action == "drop" {
-		if e.previousNode != "" && e.previousNode != targetNode {
-			if prevNode, ok := e.layoutMgr.GetNode(e.previousNode); ok {
-				if currNode, ok := e.layoutMgr.GetNode(targetNode); ok {
-					dx := currNode.X - prevNode.X
-					dz := currNode.Z - prevNode.Z
-					e.theta = normalizeAngle(math.Atan2(dx, dz)) // Forks now point directly into station pallet!
-				}
-			}
+		// If station is a cargo node with pallet orientation, align docking vector with pallet angle!
+		if targetNodeObj != nil && (targetNodeObj.Function == "Cargo" || targetNodeObj.Function == "Pick-up" || targetNodeObj.Function == "Drop-off") {
+			rot := targetNodeObj.RotationY
+			ux = math.Sin(rot)
+			uz = math.Cos(rot)
+			e.theta = normalizeAngle(rot)
+		} else {
+			e.theta = normalizeAngle(math.Atan2(ux, uz))
 		}
 	}
 	e.mu.Unlock()
@@ -658,8 +845,7 @@ func (e *AGVEngine) executeArrivalAction(action string, targetNode string) {
 	e.mu.Unlock()
 	e.triggerMqttPublish()
 
-	// Action duration: 3.0s for pick/drop/wait, 8.0s for charge
-	baseDuration := 3.0
+	baseDuration := 3.6
 	if action == "charge" {
 		baseDuration = 8.0
 	}
@@ -668,7 +854,8 @@ func (e *AGVEngine) executeArrivalAction(action string, targetNode string) {
 		actualDuration = 50 * time.Millisecond
 	}
 
-	ticker := time.NewTicker(200 * time.Millisecond)
+	startTime := time.Now()
+	ticker := time.NewTicker(60 * time.Millisecond)
 	timer := time.NewTimer(actualDuration)
 	defer ticker.Stop()
 	defer timer.Stop()
@@ -681,11 +868,47 @@ actionLoop:
 		case <-timer.C:
 			break actionLoop
 		case <-ticker.C:
+			elapsed := time.Since(startTime)
+			progress := float64(elapsed) / float64(actualDuration)
+			if progress > 1.0 {
+				progress = 1.0
+			}
+
 			if action == "charge" {
 				e.mu.Lock()
 				lvl, _, _, _ := e.battery.GetStatus()
 				e.displayMsg = fmt.Sprintf("[充電中] 電量: %.1f%%", lvl)
 				e.mu.Unlock()
+			} else if (action == "pick" || action == "drop") && hasNodePos {
+				e.mu.Lock()
+				// 3-Phase Forklift Docking Kinematics:
+				// Phase 1 (0.00 ~ 0.35): Creep forward to slide lowered forks into pallet bottom
+				// Phase 2 (0.35 ~ 0.65): Lift / lower fork carriage with cargo
+				// Phase 3 (0.65 ~ 1.00): Creep backward out of pallet back to standoff
+				if progress <= 0.35 {
+					p := progress / 0.35
+					offset := 1.25 - 0.45*p // from 1.25m to 0.80m
+					e.x = currNodeX - offset*ux
+					e.z = currNodeZ - offset*uz
+					e.displayMsg = fmt.Sprintf("[執行動作中] 牙叉從底部伸入棧板 (進叉)...")
+				} else if progress <= 0.65 {
+					offset := 0.80
+					e.x = currNodeX - offset*ux
+					e.z = currNodeZ - offset*uz
+					if action == "pick" {
+						e.displayMsg = fmt.Sprintf("[執行動作中] 牙叉升起，抬起貨物...")
+					} else {
+						e.displayMsg = fmt.Sprintf("[執行動作中] 牙叉下降，貨物就位...")
+					}
+				} else {
+					p := (progress - 0.65) / 0.35
+					offset := 0.80 + 0.45*p // from 0.80m back to 1.25m
+					e.x = currNodeX - offset*ux
+					e.z = currNodeZ - offset*uz
+					e.displayMsg = fmt.Sprintf("[執行動作中] 牙叉退出棧板 (退叉完畢)...")
+				}
+				e.mu.Unlock()
+				e.triggerMqttPublish()
 			}
 		}
 	}
@@ -697,10 +920,16 @@ actionLoop:
 		visualEvent = "pick_done"
 		e.hasCargo = true
 		e.displayMsg = fmt.Sprintf("[待命] 已完成取貨，貨物裝載完成，停靠於 %s", targetNode)
+		if e.layoutMgr != nil {
+			e.layoutMgr.SetNodeCargo(targetNode, false)
+		}
 	case "drop":
 		visualEvent = "drop_done"
 		e.hasCargo = false
 		e.displayMsg = fmt.Sprintf("[待命] 已完成卸貨，貨物輸送入庫，停靠於 %s", targetNode)
+		if e.layoutMgr != nil {
+			e.layoutMgr.SetNodeCargo(targetNode, true)
+		}
 	case "charge":
 		visualEvent = ""
 		lvl, _, _, _ := e.battery.GetStatus()

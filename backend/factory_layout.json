@@ -3,45 +3,156 @@
   "nodes": [
     {
       "id": "Node-01",
-      "name": "待命/充電區",
-      "x": 1,
+      "name": "充電站 Node-01",
+      "x": 0,
       "y": 0,
-      "z": -0.82,
+      "z": 0,
       "function": "Idle/Charge",
-      "description": "AGV 待命與自動充電樁",
+      "description": "AGV 待命與自動充電站",
       "has_cargo": false
     },
     {
-      "id": "Node-03",
-      "name": "取貨區",
-      "x": 10,
+      "id": "Node-02",
+      "name": "通道點 Node-02",
+      "x": 5.07,
       "y": 0,
-      "z": 10,
-      "function": "Pick-up",
-      "description": "智慧貨架取貨作業區",
+      "z": -0.19,
+      "function": "Transit",
+      "description": "中央導航通道點",
       "has_cargo": false
     },
     {
       "id": "Node-03",
       "name": "貨物站 Node-03",
-      "x": -4.9,
+      "x": 14.86,
       "y": 0,
-      "z": -0.1,
+      "z": 0.88,
       "function": "Cargo",
-      "description": "棧板取放貨物站點",
+      "description": "智慧貨物取貨站點（有貨）",
+      "has_cargo": true
+    },
+    {
+      "id": "Node-04",
+      "name": "貨物站 Node-04",
+      "x": 3.58,
+      "y": 0,
+      "z": 6.68,
+      "function": "Cargo",
+      "description": "智慧貨物卸貨站點（無貨）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-05",
+      "name": "通道點 Node-05",
+      "x": -0.16,
+      "y": 0,
+      "z": -4.43,
+      "function": "Transit",
+      "description": "導航通道點（純移動不停留）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-06",
+      "name": "通道點 Node-06",
+      "x": -6.1,
+      "y": 0,
+      "z": -2.2,
+      "function": "Transit",
+      "description": "導航通道點（純移動不停留）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-07",
+      "name": "通道點 Node-07",
+      "x": -5.64,
+      "y": 0,
+      "z": 0.8,
+      "function": "Transit",
+      "description": "導航通道點（純移動不停留）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-08",
+      "name": "等待點 Node-08",
+      "x": -5.3,
+      "y": 0,
+      "z": -6.5,
+      "function": "Wait",
+      "description": "原地等待避車點（停留待命）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-09",
+      "name": "充電站 Node-09",
+      "x": -0.4,
+      "y": 0,
+      "z": -7.6,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
       "has_cargo": false
     }
   ],
-  "edges": [],
-  "props": [
+  "edges": [
     {
-      "id": "Conveyor-01",
-      "modelType": "workstation",
-      "x": 0.51,
-      "y": 0.2,
-      "z": 10.1,
-      "rotationY": 0,
-      "scale": 1
+      "id": "Edge-01-02",
+      "startNodeId": "Node-01",
+      "endNodeId": "Node-02",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-02-03",
+      "startNodeId": "Node-02",
+      "endNodeId": "Node-03",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-03-04",
+      "startNodeId": "Node-03",
+      "endNodeId": "Node-04",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-02-04",
+      "startNodeId": "Node-02",
+      "endNodeId": "Node-04",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-07-06",
+      "startNodeId": "Node-07",
+      "endNodeId": "Node-06",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-06-05",
+      "startNodeId": "Node-06",
+      "endNodeId": "Node-05",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-08-05",
+      "startNodeId": "Node-08",
+      "endNodeId": "Node-05",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-08-09",
+      "startNodeId": "Node-08",
+      "endNodeId": "Node-09",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-01-07",
+      "startNodeId": "Node-07",
+      "endNodeId": "Node-01",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-02-05",
+      "startNodeId": "Node-02",
+      "endNodeId": "Node-05",
+      "bidirectional": true
     }
-  ]
+  ],
+  "props": []
 }

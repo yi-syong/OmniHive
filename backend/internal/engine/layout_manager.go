@@ -234,6 +234,23 @@ func (lm *LayoutManager) GetNode(id string) (model.LayoutNode, bool) {
 	return n, ok
 }
 
+// SetNodeCargo updates the has_cargo state of a node in memory and in the nodeMap
+func (lm *LayoutManager) SetNodeCargo(id string, hasCargo bool) {
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+
+	for i := range lm.layout.Nodes {
+		if lm.layout.Nodes[i].ID == id {
+			lm.layout.Nodes[i].HasCargo = hasCargo
+			break
+		}
+	}
+	if n, ok := lm.nodeMap[id]; ok {
+		n.HasCargo = hasCargo
+		lm.nodeMap[id] = n
+	}
+}
+
 // FindPath finds the shortest sequence of nodes and edges connecting startNodeID to targetNodeID using BFS
 func (lm *LayoutManager) FindPath(startNodeID, targetNodeID string) ([]model.LayoutNode, []string, error) {
 	lm.mu.RLock()

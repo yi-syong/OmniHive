@@ -118,6 +118,19 @@
                 <span>繞路優先 (Reroute)</span>
               </button>
             </div>
+
+            <!-- Deadlock Recovery Quick Action -->
+            <div class="strategy-emergency-row">
+              <button 
+                type="button"
+                class="strat-unstick-btn"
+                @click="handleDashboardFleetReset"
+                title="強制釋放全場預約路權，中斷卡死任務並重設車隊至待命狀態"
+              >
+                <ShieldAlert :size="13" />
+                <span>一鍵解除全場死鎖 (Unstick Fleet)</span>
+              </button>
+            </div>
           </div>
 
           <!-- 1.2 A/B Testing Telemetry KPI Cards -->
@@ -497,7 +510,8 @@ import {
   Shuffle,
   CheckCircle2,
   Clock,
-  TrendingUp
+  TrendingUp,
+  ShieldAlert
 } from 'lucide-vue-next';
 import { 
   agvState, 
@@ -512,11 +526,18 @@ import {
   setTrafficStrategy,
   fleetVehicles,
   selectVehicle,
-  currentAppMode
+  currentAppMode,
+  resetFleet
 } from '../services/websocket';
 import type { StateUpdateMessage } from '../types';
 
 defineEmits<{ (e: 'close'): void }>();
+
+function handleDashboardFleetReset() {
+  if (confirm('🚨 確定要一鍵解除全場死鎖？\n系統將立即釋放所有車輛的鎖定路權，中斷停等任務並重設車隊至待命狀態。')) {
+    resetFleet();
+  }
+}
 
 const statusLabel = computed(() => {
   if (agvState.task_info.is_traffic_wait) {
@@ -878,6 +899,34 @@ function getBatteryModeClass(mode: string | undefined): string {
   border-color: rgba(56, 189, 248, 0.6);
   color: #38bdf8;
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+}
+
+.strategy-emergency-row {
+  margin-top: 2px;
+}
+
+.strat-unstick-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(225, 29, 72, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #fda4af;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.strat-unstick-btn:hover {
+  background: rgba(225, 29, 72, 0.25);
+  border-color: rgba(244, 63, 94, 0.55);
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.25);
 }
 
 /* A/B Testing Telemetry KPI Section */

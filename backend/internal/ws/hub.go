@@ -35,6 +35,8 @@ type Hub struct {
 	onOrderReceived     func(msg model.WsDispatchOrderMessage)
 	onTimeScaleReceived func(scale float64)
 	onStrategyReceived  func(strategy string)
+	onCancelReceived    func(agvID, reason string)
+	onResetReceived     func()
 	getCurrentState     func() model.WsStateUpdateMessage
 	getInitialStates    func() []model.WsStateUpdateMessage
 }
@@ -43,6 +45,18 @@ func (h *Hub) SetStrategyCallback(fn func(strategy string)) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.onStrategyReceived = fn
+}
+
+func (h *Hub) SetCancelCallback(fn func(agvID, reason string)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onCancelReceived = fn
+}
+
+func (h *Hub) SetResetCallback(fn func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onResetReceived = fn
 }
 
 func (h *Hub) SetInitialStatesProvider(fn func() []model.WsStateUpdateMessage) {
@@ -203,6 +217,22 @@ func (c *Client) readPump() {
 				if c.hub.onStrategyReceived != nil {
 					c.hub.onStrategyReceived(stratMsg.Strategy)
 				}
+			}
+		case "cancel_order":
+			var cancelMsg struct {
+				AgvID  string `json:"agv_id"`
+				Reason string `json:"reason"`
+			}
+			if err := json.Unmarshal(message, &cancelMsg); err == nil {
+				log.Printf("[WS] Received cancel_order: AGV=%s, Reason=%s", cancelMsg.AgvID, cancelMsg.Reason)
+				if c.hub.onCancelReceived != nil {
+					c.hub.onCancelReceived(cancelMsg.AgvID, cancelMsg.Reason)
+				}
+			}
+		case "reset_fleet":
+			log.Printf("[WS] Received reset_fleet")
+			if c.hub.onResetReceived != nil {
+				c.hub.onResetReceived()
 			}
 		default:
 			log.Printf("[WS] Received unhandled message type %s: %s", baseMsg.Type, string(message))

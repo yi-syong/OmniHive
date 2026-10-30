@@ -58,6 +58,8 @@ func main() {
 	timeScaleTopic := "omnihive/control/time_scale"
 	layoutReloadTopic := "omnihive/layout/reload"
 	addVehicleTopic := "omnihive/control/add_vehicle"
+	cancelTopic := "omnihive/control/cancel"
+	resetTopic := "omnihive/control/reset"
 
 	log.Printf("==================================================")
 	log.Printf("   OmniHive Multi-AGV Behavior Fleet Simulator    ")
@@ -159,7 +161,15 @@ func main() {
 				return
 			}
 			if len(order.Nodes) == 0 {
-				log.Printf("[WARNING] Order contains no nodes")
+				log.Printf("[SIMULATOR] Received VDA 5050 cancel/empty order for vehicle %s", targetIdLower)
+				mu.RLock()
+				for id, eng := range engines {
+					if strings.EqualFold(id, targetIdLower) {
+						eng.AbortCurrentOrder("收到 VDA 5050 中止訂單")
+						break
+					}
+				}
+				mu.RUnlock()
 				return
 			}
 
@@ -243,6 +253,47 @@ func main() {
 		})
 		if token.Wait() && token.Error() != nil {
 			log.Printf("[MQTT ERROR] Failed to subscribe to %s: %v", addVehicleTopic, token.Error())
+		}
+
+		// 5. Subscribe to Cancel Mission topic
+		token = c.Subscribe(cancelTopic, 1, func(_ paho.Client, m paho.Message) {
+			var payload struct {
+				AgvID  string `json:"agv_id"`
+				Reason string `json:"reason"`
+			}
+			if err := json.Unmarshal(m.Payload(), &payload); err != nil {
+				return
+			}
+			mu.RLock()
+			for id, eng := range engines {
+				if strings.EqualFold(id, payload.AgvID) {
+					eng.AbortCurrentOrder(payload.Reason)
+					log.Printf("[SIMULATOR] Successfully aborted mission for vehicle %s: %s", id, payload.Reason)
+					break
+				}
+			}
+			mu.RUnlock()
+		})
+		if token.Wait() && token.Error() != nil {
+			log.Printf("[MQTT ERROR] Failed to subscribe to %s: %v", cancelTopic, token.Error())
+		} else {
+			log.Printf("[MQTT] Subscribed to Cancel topic: %s", cancelTopic)
+		}
+
+		// 6. Subscribe to Fleet Reset topic
+		token = c.Subscribe(resetTopic, 1, func(_ paho.Client, m paho.Message) {
+			log.Printf("[SIMULATOR] Fleet reset signal received. Resetting all vehicles to IDLE...")
+			mu.RLock()
+			for id, eng := range engines {
+				eng.ResetVehicleState("")
+				log.Printf("[SIMULATOR] Reset vehicle %s to IDLE", id)
+			}
+			mu.RUnlock()
+		})
+		if token.Wait() && token.Error() != nil {
+			log.Printf("[MQTT ERROR] Failed to subscribe to %s: %v", resetTopic, token.Error())
+		} else {
+			log.Printf("[MQTT] Subscribed to Reset topic: %s", resetTopic)
 		}
 	})
 
