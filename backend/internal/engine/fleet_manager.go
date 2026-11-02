@@ -283,6 +283,7 @@ func (fm *FleetManager) OnVehicleTelemetry(msg model.WsStateUpdateMessage) {
 		if prevNode != "" {
 			fm.registry.UnlockNode(prevNode, agvID)
 			log.Printf("[FLEET REGISTRY] AGV %s arrived at %s; unlocked %s", agvID, currNode, prevNode)
+			fm.evaluateAllWaitingMissionsLocked()
 		}
 		fm.registry.TryLockNode(currNode, agvID)
 		fm.agvCurrentNodes[agvID] = currNode
@@ -301,6 +302,7 @@ func (fm *FleetManager) OnVehicleTelemetry(msg model.WsStateUpdateMessage) {
 		delete(fm.activeMissions, agvID)
 		log.Printf("[FLEET MASTER] Mission %s completed by %s! Throughput: %d",
 			mission.OrderID, agvID, fm.metrics.throughput)
+		fm.evaluateAllWaitingMissionsLocked()
 		fm.broadcastCurrentMetrics()
 		return
 	}
@@ -471,6 +473,7 @@ func (fm *FleetManager) cancelMissionInternal(agvID, reason string) {
 		fm.registry.TryLockNode(currNode, agvID)
 	}
 	fm.strategyMgr.GetCurrentStrategy().ResetVehicleWait(agvID)
+	fm.evaluateAllWaitingMissionsLocked()
 
 	// Publish empty VDA 5050 order to notify vehicle simulator of cancellation
 	if fm.publishVDAOrder != nil {
@@ -543,6 +546,62 @@ func (fm *FleetManager) ResetFleetLocks() {
 
 	log.Printf("[FLEET MASTER] Successfully reset all fleet locks and missions.")
 	fm.broadcastCurrentMetrics()
+}
+
+// evaluateAllWaitingMissionsLocked re-evaluates all vehicles waiting at horizon boundaries
+// to promote nodes to Base immediately as soon as a blockage clears.
+func (fm *FleetManager) evaluateAllWaitingMissionsLocked() {
+	strategy := fm.strategyMgr.GetCurrentStrategy()
+	for agvID, mission := range fm.activeMissions {
+		if mission.IsCompleted || mission.ReleasedCount >= len(mission.AllNodes) {
+			continue
+		}
+
+		currentBaseIDs := make([]string, 0, mission.ReleasedCount)
+		for i := 0; i < mission.ReleasedCount; i++ {
+			currentBaseIDs = append(currentBaseIDs, mission.AllNodes[i].NodeID)
+		}
+
+		horizonIDs := make([]string, 0, len(mission.AllNodes)-mission.ReleasedCount)
+		for i := mission.ReleasedCount; i < len(mission.AllNodes); i++ {
+			horizonIDs = append(horizonIDs, mission.AllNodes[i].NodeID)
+		}
+
+		if len(horizonIDs) == 0 {
+			continue
+		}
+
+		decision := strategy.EvaluateRelease(agvID, currentBaseIDs, horizonIDs, fm.registry, fm.layoutMgr)
+		if decision.Action == DecisionReleaseNext {
+			nextHorizonNode := horizonIDs[0]
+			if fm.registry.TryLockNode(nextHorizonNode, agvID) {
+				mission.AllNodes[mission.ReleasedCount].Released = true
+				mission.ReleasedCount++
+				mission.OrderUpdateID++
+
+				now := time.Now().UTC()
+				updateOrder := model.Order{
+					Header: model.Header{
+						HeaderID:     uint32(now.Unix()),
+						Timestamp:    now,
+						Version:      "2.1.0",
+						Manufacturer: "OmniHive",
+						SerialNumber: agvID,
+					},
+					OrderID:       mission.OrderID,
+					OrderUpdateID: mission.OrderUpdateID,
+					Nodes:         mission.AllNodes,
+					Edges:         []model.Edge{},
+				}
+
+				if fm.publishVDAOrder != nil {
+					fm.publishVDAOrder(agvID, updateOrder)
+				}
+				log.Printf("[FLEET MASTER] Auto-resumed waiting AGV %s by releasing Node %s into Base (UpdateID: %d)",
+					agvID, nextHorizonNode, mission.OrderUpdateID)
+			}
+		}
+	}
 }
 
 func (fm *FleetManager) broadcastCurrentMetrics() {

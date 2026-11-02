@@ -316,22 +316,60 @@ func (e *AGVEngine) SubmitVDAOrder(order model.Order) {
 	e.mu.Lock()
 	if e.orderID == order.OrderID && order.OrderUpdateID > e.currentOrderUpdateID {
 		e.currentOrderUpdateID = order.OrderUpdateID
-		// In-place update of waypoint release flags
-		for _, vNode := range order.Nodes {
-			for idx := range e.orderWaypoints {
-				if e.orderWaypoints[idx].NodeID == vNode.NodeID {
-					e.orderWaypoints[idx].Released = vNode.Released
+
+		// Check if order.Nodes has a detour / changed path compared to current orderWaypoints
+		isDetour := false
+		if len(order.Nodes) != len(e.orderWaypoints) {
+			isDetour = true
+		} else {
+			for i, vNode := range order.Nodes {
+				if i >= len(e.orderWaypoints) || e.orderWaypoints[i].NodeID != vNode.NodeID {
+					isDetour = true
+					break
 				}
 			}
 		}
-		log.Printf("[AGV %s] Applied VDA OrderUpdate %d for Order %s (Nodes: %d)",
+
+		if !isDetour {
+			// Normal Base release promotion on existing route
+			for _, vNode := range order.Nodes {
+				for idx := range e.orderWaypoints {
+					if e.orderWaypoints[idx].NodeID == vNode.NodeID {
+						e.orderWaypoints[idx].Released = vNode.Released
+					}
+				}
+			}
+			log.Printf("[AGV %s] Applied VDA OrderUpdate %d for Order %s (Nodes: %d)",
+				e.id, order.OrderUpdateID, order.OrderID, len(order.Nodes))
+			e.mu.Unlock()
+
+			// Wake up any traffic waiting loop
+			select {
+			case e.orderUpdateNotify <- struct{}{}:
+			default:
+			}
+			return
+		}
+
+		// Reroute detour injected: cancel previous waypoint loop and re-run with detour order
+		log.Printf("[AGV %s] Detour detected in OrderUpdate %d for Order %s (Nodes: %d); preempting and executing detour",
 			e.id, order.OrderUpdateID, order.OrderID, len(order.Nodes))
 		e.mu.Unlock()
 
-		// Wake up any traffic waiting loop
+		e.orderCtxMu.Lock()
+		if e.currentOrderCancel != nil {
+			e.currentOrderCancel()
+		}
+		e.orderCtxMu.Unlock()
+
 		select {
-		case e.orderUpdateNotify <- struct{}{}:
+		case e.vdaOrderQueue <- order:
 		default:
+			select {
+			case <-e.vdaOrderQueue:
+			default:
+			}
+			e.vdaOrderQueue <- order
 		}
 		return
 	}
@@ -439,13 +477,27 @@ func (e *AGVEngine) processVDAOrder(order model.Order) {
 		return
 	}
 
-	// Build waypoints from order.Nodes
+	// Build waypoints from order.Nodes starting AFTER startNode (if startNode is in the sequence)
 	var waypoints []AGVWaypoint
 	var nodeStates []string
 
-	for _, n := range order.Nodes {
-		if n.NodeID == startNode && len(order.Nodes) > 1 {
-			// Skip starting node if it's the current position
+	startIdx := -1
+	for idx, n := range order.Nodes {
+		if n.NodeID == startNode {
+			startIdx = idx
+			break
+		}
+	}
+
+	nodesToProcess := order.Nodes
+	if startIdx >= 0 && startIdx < len(order.Nodes)-1 {
+		nodesToProcess = order.Nodes[startIdx+1:]
+	} else if startIdx == len(order.Nodes)-1 && len(order.Nodes) > 1 {
+		nodesToProcess = []model.Node{order.Nodes[startIdx]}
+	}
+
+	for _, n := range nodesToProcess {
+		if n.NodeID == startNode && len(nodesToProcess) > 1 {
 			continue
 		}
 		var posX, posZ float64
@@ -601,18 +653,32 @@ func (e *AGVEngine) navigateToWaypoint(orderCtx context.Context, wp AGVWaypoint,
 	targetZ := wp.Z
 	isDockingAction := isFinal && (wp.Action == "pick" || wp.Action == "drop")
 
-	// If docking at cargo station, stop at safe standoff (1.25m in front of pallet)
+	var dockUx, dockUz float64
+	var dockRot float64
+	hasDockRot := false
+
+	// If docking at cargo station, calculate standoff position precisely aligned with pallet entrance angle
 	if isDockingAction {
-		dx0 := wp.X - e.x
-		dz0 := wp.Z - e.z
-		d0 := math.Hypot(dx0, dz0)
-		if d0 > 0.01 {
-			ux := dx0 / d0
-			uz := dz0 / d0
-			standoff := 1.25
-			targetX = wp.X - standoff*ux
-			targetZ = wp.Z - standoff*uz
+		if targetNode, ok := e.layoutMgr.GetNode(wp.NodeID); ok && (targetNode.Function == "Cargo" || targetNode.Function == "Pick-up" || targetNode.Function == "Drop-off") {
+			dockRot = normalizeAngle(targetNode.RotationY)
+			dockUx = math.Sin(dockRot)
+			dockUz = math.Cos(dockRot)
+			hasDockRot = true
+		} else {
+			dx0 := wp.X - e.x
+			dz0 := wp.Z - e.z
+			d0 := math.Hypot(dx0, dz0)
+			if d0 > 0.01 {
+				dockUx = dx0 / d0
+				dockUz = dz0 / d0
+			} else {
+				dockUz = 1.0
+			}
+			dockRot = normalizeAngle(math.Atan2(dockUx, dockUz))
 		}
+		standoff := 1.25
+		targetX = wp.X - standoff*dockUx
+		targetZ = wp.Z - standoff*dockUz
 	}
 
 	for {
@@ -626,6 +692,10 @@ func (e *AGVEngine) navigateToWaypoint(orderCtx context.Context, wp AGVWaypoint,
 			scale := e.timeScale
 			dt := BaseTickDt * scale
 
+			dx := targetX - e.x
+			dz := targetZ - e.z
+			dist := math.Sqrt(dx*dx + dz*dz)
+
 			// Inter-vehicle collision avoidance (fleet proximity field ~1.8m)
 			fp := e.fleetProvider
 			if fp != nil {
@@ -637,12 +707,20 @@ func (e *AGVEngine) navigateToWaypoint(orderCtx context.Context, wp AGVWaypoint,
 				for _, other := range poses {
 					d := math.Hypot(other.X-e.x, other.Z-e.z)
 					if d < 1.8 {
+						// Directional check: are we driving towards or away from the other vehicle?
+						dxOther := other.X - e.x
+						dzOther := other.Z - e.z
+						dot := (dx*dxOther + dz*dzOther)
+						// If dot <= 0, our forward motion moves away from other vehicle; do not yield!
+						if dot <= 0 {
+							continue
+						}
+
 						// Deterministic collision avoidance without mutual deadlock:
-						// 1. If other is parked directly at our waypoint node -> yield.
+						// 1. If other is stationary and parked directly at our waypoint node -> yield.
 						// 2. If other is stopped and at our current node -> yield.
 						// 3. If both are active, strict alphanumeric priority: larger ID yields to smaller ID.
-						// (Never yield solely on other.Speed == 0 when other is active, because other may have stopped to yield to us!)
-						if other.NodeID == wp.NodeID || (other.Speed == 0 && other.NodeID == e.currentNode) || e.id > other.ID {
+						if (other.Speed == 0 && other.NodeID == wp.NodeID) || (other.Speed == 0 && other.NodeID == e.currentNode) || e.id > other.ID {
 							tooClose = true
 							conflictID = other.ID
 							conflictDist = d
@@ -663,10 +741,6 @@ func (e *AGVEngine) navigateToWaypoint(orderCtx context.Context, wp AGVWaypoint,
 					e.displayMsg = fmt.Sprintf("[行駛中] 前方路況淨空，恢復前往 %s", wp.NodeID)
 				}
 			}
-
-			dx := targetX - e.x
-			dz := targetZ - e.z
-			dist := math.Sqrt(dx*dx + dz*dz)
 
 			// Target speed: TurnSpeed for mid-waypoints, 0 for final target
 			targetSpeedAtWaypoint := TurnSpeedMetric
@@ -722,17 +796,15 @@ func (e *AGVEngine) navigateToWaypoint(orderCtx context.Context, wp AGVWaypoint,
 
 			step := e.currentSpeed * dt
 
-			// Travel direction:
-			// - Normal cruising between waypoints: chassis leads forward, forks trail behind in the rear!
-			// - Final docking approach to pick/drop: forks turn forward to face station pallet!
-			if isDockingAction {
-				if targetNode, ok := e.layoutMgr.GetNode(wp.NodeID); ok && (targetNode.Function == "Cargo" || targetNode.Function == "Pick-up" || targetNode.Function == "Drop-off") {
-					e.theta = normalizeAngle(targetNode.RotationY)
-				} else {
-					e.theta = normalizeAngle(math.Atan2(wp.X-e.x, wp.Z-e.z))
-				}
-			} else {
-				e.theta = normalizeAngle(math.Atan2(dx, dz) + math.Pi)
+			// Heading orientation:
+			// - Natural forward travel: heading points in the direction of velocity (dx, dz)
+			// - As we decelerate into docking standoff position, smoothly orient towards pallet entry angle (dockRot)
+			if dist > 0.35 {
+				e.theta = normalizeAngle(math.Atan2(dx, dz))
+			} else if isDockingAction && hasDockRot {
+				e.theta = dockRot
+			} else if dist > 0.05 {
+				e.theta = normalizeAngle(math.Atan2(dx, dz))
 			}
 
 			// Step towards waypoint
@@ -740,6 +812,9 @@ func (e *AGVEngine) navigateToWaypoint(orderCtx context.Context, wp AGVWaypoint,
 				// Reached waypoint!
 				e.x = targetX
 				e.z = targetZ
+				if isDockingAction && hasDockRot {
+					e.theta = dockRot
+				}
 				e.previousNode = e.currentNode
 				e.currentNode = wp.NodeID
 
@@ -778,7 +853,7 @@ func (e *AGVEngine) executeArrivalAction(action string, targetNode string) {
 	e.currentNode = targetNode
 	scale := e.timeScale
 
-	var currNodeX, currNodeZ, prevNodeX, prevNodeZ float64
+	var currNodeX, currNodeZ float64
 	hasNodePos := false
 	var targetNodeObj *model.LayoutNode
 	if currNode, ok := e.layoutMgr.GetNode(targetNode); ok {
@@ -787,36 +862,18 @@ func (e *AGVEngine) executeArrivalAction(action string, targetNode string) {
 		hasNodePos = true
 		targetNodeObj = &currNode
 	}
-	if e.previousNode != "" {
-		if prevNode, ok := e.layoutMgr.GetNode(e.previousNode); ok {
-			prevNodeX = prevNode.X
-			prevNodeZ = prevNode.Z
-		}
-	} else if hasNodePos {
-		prevNodeX = e.x
-		prevNodeZ = e.z
-	}
 
-	// Calculate docking approach unit vector (from approach path into pallet)
-	dx := currNodeX - prevNodeX
-	dz := currNodeZ - prevNodeZ
-	dLen := math.Hypot(dx, dz)
-	ux := 0.0
-	uz := 1.0
-	if dLen > 0.01 {
-		ux = dx / dLen
-		uz = dz / dLen
-	}
-
+	var ux, uz float64
 	if action == "pick" || action == "drop" {
-		// If station is a cargo node with pallet orientation, align docking vector with pallet angle!
+		// Pallet approach vector precisely aligned with station orientation
 		if targetNodeObj != nil && (targetNodeObj.Function == "Cargo" || targetNodeObj.Function == "Pick-up" || targetNodeObj.Function == "Drop-off") {
-			rot := targetNodeObj.RotationY
+			rot := normalizeAngle(targetNodeObj.RotationY)
 			ux = math.Sin(rot)
 			uz = math.Cos(rot)
-			e.theta = normalizeAngle(rot)
+			e.theta = rot
 		} else {
-			e.theta = normalizeAngle(math.Atan2(ux, uz))
+			ux = math.Sin(e.theta)
+			uz = math.Cos(e.theta)
 		}
 	}
 	e.mu.Unlock()
@@ -977,9 +1034,15 @@ func (e *AGVEngine) runKinematicsLoop() {
 		case <-ticker.C:
 			e.mu.Lock()
 			dt := BaseTickDt * e.timeScale
-			// Update battery: charges when executing "charge" action OR when parked at Node-01 charging station
+			// Update battery: charges when executing "charge" action OR when parked at an actual charging station (never at waiting points!)
+			isAtChargingStation := false
+			if e.layoutMgr != nil && e.currentNode != "" {
+				if node, ok := e.layoutMgr.GetNode(e.currentNode); ok {
+					isAtChargingStation = (node.Function == "Idle/Charge" || node.Function == "Charge" || strings.Contains(node.Name, "充電"))
+				}
+			}
 			isChargingNow := (e.status == StatusActing && e.currentAction == "charge") ||
-				(e.status == StatusIdle && e.currentNode == "Node-01")
+				(e.status == StatusIdle && isAtChargingStation)
 			e.battery.Update(e.status, e.currentAction, e.currentSpeed, MaxSpeedMetric, e.hasCargo, isChargingNow, dt)
 			e.mu.Unlock()
 

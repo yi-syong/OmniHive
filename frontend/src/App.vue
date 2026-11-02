@@ -18,10 +18,55 @@
             </div>
           </div>
         </div>
+        <!-- Group 2: 執行控制 (倍率 + 交管策略) -->
+        <div v-if="currentAppMode === 'simulate'" class="nav-controls-group">
+          <!-- 全域模擬倍率控制 -->
+          <div class="sim-speed-control" title="調整車輛行駛與物理模擬步長倍率">
+            <div class="speed-label-group">
+              <Zap :size="12" class="text-amber" />
+              <span class="speed-label">倍率</span>
+            </div>
+            <div class="speed-btns">
+              <button 
+                v-for="s in [1, 2, 5, 10]" 
+                :key="s"
+                :class="['speed-pill', { active: currentTimeScale === s }]"
+                @click="setTimeScale(s)"
+              >
+                {{ s }}×
+              </button>
+            </div>
+          </div>
+
+          <!-- VDA 5050 車隊交管策略切換 (等待優先 / 動態繞路) -->
+          <div class="sim-speed-control strategy-toggle-control" title="VDA 5050 車隊交管演算法：切換等待或動態繞路">
+            <div class="speed-label-group">
+              <GitFork :size="12" class="text-cyan" />
+              <span class="speed-label text-cyan">交管</span>
+            </div>
+            <div class="speed-btns">
+              <button 
+                :class="['speed-pill', 'strat-pill', { active: trafficMetrics.strategy_name === 'wait' }]"
+                @click="setTrafficStrategy('wait')"
+                title="死等淨空：前方節點未釋放立即原地煞停，絕對安全零繞路"
+              >
+                等待優先
+              </button>
+              <button 
+                :class="['speed-pill', 'strat-pill', { active: trafficMetrics.strategy_name === 'reroute' }]"
+                @click="setTrafficStrategy('reroute')"
+                title="動態繞路：停等逾時自動 A* 避障尋求替代路線，提升全廠吞吐量"
+              >
+                動態繞路
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Center: Mode Switcher & Simulation Speed Control -->
+      <!-- Center: 模擬監控 與 編輯地圖 絕對置中！ -->
       <div class="nav-center">
+        <!-- 核心操作模式 (模擬監控 / 編輯地圖) 永遠置中 -->
         <div class="mode-switcher" role="tablist" aria-label="系統運作模式">
           <button 
             :class="['mode-tab', { active: currentAppMode === 'simulate' }]"
@@ -42,27 +87,9 @@
             <span>編輯地圖</span>
           </button>
         </div>
-
-        <!-- 全域模擬倍率控制 (置於全域控制列而非監控面板) -->
-        <div v-if="currentAppMode === 'simulate'" class="sim-speed-control" title="調整車輛行駛與物理模擬步長倍率">
-          <div class="speed-label-group">
-            <Zap :size="12" class="text-amber" />
-            <span class="speed-label">倍率</span>
-          </div>
-          <div class="speed-btns">
-            <button 
-              v-for="s in [1, 2, 5, 10]" 
-              :key="s"
-              :class="['speed-pill', { active: currentTimeScale === s }]"
-              @click="setTimeScale(s)"
-            >
-              {{ s }}×
-            </button>
-          </div>
-        </div>
       </div>
 
-      <!-- Right: Status, Dashboard Toggle, Connection -->
+      <!-- Right: Group 3: 系統狀態 & 獨立高風險操作分組 -->
       <div class="nav-right">
         <!-- Dirty State Indicator -->
         <div v-if="hasUnsavedChanges" class="tech-badge dirty-badge" title="地圖有未儲存變更，切換至模擬前請先儲存">
@@ -70,35 +97,50 @@
           <span class="badge-text">未儲存變更</span>
         </div>
 
-        <!-- 一鍵解除卡死 (緊急處置按鈕，僅在模擬監控模式顯示) -->
-        <button 
-          v-if="currentAppMode === 'simulate'"
-          class="hud-nav-btn emergency-btn"
-          @click="handleGlobalFleetReset"
-          title="緊急解除全場路權死鎖與卡死任務，釋放車隊回歸待命 (一鍵脫困)"
-        >
-          <ShieldAlert :size="14" class="text-rose" />
-          <span class="btn-text">一鍵解除卡死</span>
-        </button>
+        <!-- 狀態與監控群組 -->
+        <div class="nav-status-group">
+          <!-- Connection Indicator -->
+          <div :class="['conn-indicator', isConnected ? 'online' : 'offline']" :title="isConnected ? '後端連線正常' : '嘗試連線中'">
+            <span class="pulse-indicator"></span>
+            <span class="conn-text">{{ isConnected ? '連線正常' : '斷線' }}</span>
+          </div>
 
-        <!-- 功能 1 切換按鈕: 車況儀表板 (僅在模擬監控模式顯示) -->
-        <button 
-          v-if="currentAppMode === 'simulate'"
-          :class="['hud-nav-btn', { active: showDashboard }]" 
-          @click="showDashboard = !showDashboard"
-          title="開啟/關閉車況儀表板"
-        >
-          <Activity :size="14" />
-          <span class="btn-text">車況儀表</span>
-        </button>
+          <!-- 功能 1 切換按鈕: 車況儀表板 (僅在模擬監控模式顯示) -->
+          <button 
+            v-if="currentAppMode === 'simulate'"
+            :class="['hud-nav-btn', { active: showDashboard }]" 
+            @click="showDashboard = !showDashboard"
+            title="開啟/收合車況儀表板"
+          >
+            <Activity :size="14" />
+            <span class="btn-text">車況面板</span>
+          </button>
+        </div>
 
-        <!-- Connection Indicator -->
-        <div :class="['conn-indicator', isConnected ? 'online' : 'offline']" :title="isConnected ? '後端連線正常' : '嘗試連線中'">
-          <span class="pulse-indicator"></span>
-          <span class="conn-text">{{ isConnected ? '連線正常' : '斷線' }}</span>
+        <!-- 獨立高風險危險操作分組 (需二次確認) -->
+        <div v-if="currentAppMode === 'simulate'" class="nav-danger-group">
+          <button 
+            class="hud-nav-btn emergency-btn"
+            @click="showDeadlockModal = true"
+            title="緊急解除全場路權死鎖與卡死任務 (點擊後進行二次確認)"
+          >
+            <ShieldAlert :size="14" class="text-rose" />
+            <span class="btn-text">解卡死</span>
+          </button>
         </div>
       </div>
     </header>
+
+    <!-- 抽屜邊緣切換把手 (當右側面板收合時，可一鍵快速展開) -->
+    <button 
+      v-if="!showDashboard && currentAppMode === 'simulate'"
+      class="drawer-edge-toggle"
+      @click="showDashboard = true"
+      title="展開車隊與單車遙測儀表板"
+    >
+      <ChevronLeft :size="14" />
+      <span>車況儀表</span>
+    </button>
 
     <!-- 功能 1: 即時狀態儀表板 (右側懸浮面板) -->
     <transition name="slide-right">
@@ -147,6 +189,46 @@
       </div>
     </transition>
 
+    <!-- 一鍵解除卡死 二次確認安全對話框 (防止誤觸與明確影響範圍) -->
+    <transition name="modal-fade">
+      <div v-if="showDeadlockModal" class="modal-overlay" @click.self="showDeadlockModal = false">
+        <div class="modal-card modal-danger">
+          <div class="modal-header">
+            <div class="modal-header-icon danger-icon">
+              <ShieldAlert :size="24" class="text-rose" />
+            </div>
+            <div>
+              <h3 class="modal-title">確認強制解除全廠卡死？</h3>
+              <p class="modal-subtitle">高風險操作 · 影響全廠在線車隊</p>
+            </div>
+          </div>
+          
+          <div class="modal-body">
+            <p class="modal-desc">
+              系統將強制中止所有正在執行與交管停等中的任務，立即釋放全廠鎖定之路權節點，並將車隊狀態重置為待命 (IDLE)。
+            </p>
+            <div class="danger-callout">
+              <AlertTriangle :size="18" class="text-rose shrink-0" />
+              <div>
+                <strong>影響範圍：</strong>
+                <span>全廠所有在線 AGV（立即中斷當前行駛路線與貨物對位流程）。</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn-modal btn-cancel" @click="showDeadlockModal = false">
+              取消 (保持現狀)
+            </button>
+            <button class="btn-modal btn-danger-action" @click="confirmGlobalFleetReset">
+              <ShieldAlert :size="15" />
+              確認解除卡死
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- Notification Toast for Visual Events & Scene Actions -->
     <transition name="toast">
       <div v-if="toastMessage" :class="['toast-notification', `toast-${toastType}`]">
@@ -172,7 +254,9 @@ import {
   AlertTriangle, 
   Info,
   Save,
-  ShieldAlert
+  ShieldAlert,
+  GitFork,
+  ChevronLeft
 } from 'lucide-vue-next';
 import BabylonScene from './components/BabylonScene.vue';
 import Dashboard from './components/Dashboard.vue';
@@ -185,18 +269,20 @@ import {
   setTimeScale,
   hasUnsavedChanges,
   clearLayoutDirty,
-  resetFleet
+  resetFleet,
+  trafficMetrics,
+  setTrafficStrategy
 } from './services/websocket';
 
 const sceneRef = ref<any>(null);
 const showDashboard = ref(true);
 const showUnsavedModal = ref(false);
+const showDeadlockModal = ref(false);
 
-function handleGlobalFleetReset() {
-  if (confirm('🚨 確定要一鍵解除全場死鎖？\n系統將立即釋放所有車輛的鎖定路權，中斷停等任務並重設車隊至待命狀態。')) {
-    resetFleet();
-    showToast(ShieldAlert, '🚨 已發送全場脫困指令，所有車輛已解除死鎖並回歸待命！', 'warn');
-  }
+function confirmGlobalFleetReset() {
+  showDeadlockModal.value = false;
+  resetFleet();
+  showToast(ShieldAlert, '🚨 已發送全場脫困指令，所有車輛已解除死鎖並回歸待命！', 'warn');
 }
 
 const toastMessage = ref<string | null>(null);
@@ -239,10 +325,10 @@ async function handleSaveAndSimulate() {
 }
 
 async function handleDiscardAndSimulate() {
+  clearLayoutDirty();
   if (sceneRef.value?.handleResetLayout) {
     await sceneRef.value.handleResetLayout();
   }
-  clearLayoutDirty();
   showUnsavedModal.value = false;
   currentAppMode.value = 'simulate';
   showToast(Info, '已放棄未儲存變更，還原為後端場域配置', 'info');
@@ -300,22 +386,36 @@ onMounted(() => {
 .nav-left {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .nav-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  flex: 1;
+  pointer-events: auto;
 }
 
 .nav-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .brand {
@@ -457,6 +557,17 @@ onMounted(() => {
   background: rgba(245, 158, 11, 0.25);
   color: #fbbf24;
   border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.strategy-toggle-control {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.strat-pill.active {
+  background: rgba(56, 189, 248, 0.22);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.2);
 }
 
 .text-cyan { color: #38bdf8; }
@@ -802,6 +913,85 @@ onMounted(() => {
 .modal-fade-leave-active { transition: opacity 0.25s ease; }
 .modal-fade-enter-from,
 .modal-fade-leave-to { opacity: 0; }
+
+/* Nav Functional Groups */
+.nav-status-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-danger-group {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Right Edge Drawer Toggle Tab */
+.drawer-edge-toggle {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 12px 11px 10px;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.45);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.drawer-edge-toggle:hover {
+  background: rgba(15, 23, 42, 0.98);
+  border-color: rgba(14, 165, 233, 0.6);
+  color: #7dd3fc;
+  padding-right: 15px;
+  box-shadow: -6px 0 24px rgba(14, 165, 233, 0.25);
+}
+
+/* Danger Modal Styling */
+.modal-danger {
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7), 0 0 32px rgba(244, 63, 94, 0.12);
+}
+.danger-icon {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+}
+.danger-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  color: #fecdd3;
+  line-height: 1.45;
+}
+.danger-callout strong {
+  color: #ffe4e6;
+}
+.btn-danger-action {
+  background: linear-gradient(135deg, #e11d48, #be123c);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35);
+}
+.btn-danger-action:hover {
+  background: linear-gradient(135deg, #be123c, #9f1239);
+}
 
 /* ---------------------------------------------------- */
 /* RWD Media Queries */

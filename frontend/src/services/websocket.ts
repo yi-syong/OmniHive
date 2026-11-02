@@ -55,10 +55,23 @@ export const quickDispatchSteps = ref<DispatchOrderStep[]>([
 
 export function markLayoutDirty() {
   hasUnsavedChanges.value = true;
+  try {
+    localStorage.setItem('omnihive_edit_draft', JSON.stringify({
+      version: factoryLayout.version || '2.0.0',
+      nodes: factoryLayout.nodes,
+      edges: factoryLayout.edges,
+      props: factoryLayout.props
+    }));
+  } catch (e) {
+    console.warn('[Layout Draft] Failed to persist draft to localStorage:', e);
+  }
 }
 
 export function clearLayoutDirty() {
   hasUnsavedChanges.value = false;
+  try {
+    localStorage.removeItem('omnihive_edit_draft');
+  } catch (e) {}
 }
 
 export const isTelemetryStale = computed(() => {
@@ -352,16 +365,40 @@ export async function apiResetFleet(): Promise<boolean> {
 // REST API for Layout Persistence
 const getApiBase = () => `http://${getHost()}:8080/api`;
 
-export async function fetchLayout(): Promise<FactoryLayout | null> {
+export async function fetchLayout(forceFromServer = false): Promise<FactoryLayout | null> {
+  // If in edit mode with unsaved changes, restore the user's active draft without wiping their edits!
+  if (!forceFromServer && currentAppMode.value === 'edit' && hasUnsavedChanges.value) {
+    try {
+      const draftStr = localStorage.getItem('omnihive_edit_draft');
+      if (draftStr) {
+        const draft: FactoryLayout = JSON.parse(draftStr);
+        if (draft && draft.nodes && draft.nodes.length > 0) {
+          factoryLayout.version = draft.version || '2.0.0';
+          factoryLayout.nodes = draft.nodes;
+          factoryLayout.edges = draft.edges || [];
+          factoryLayout.props = draft.props || [];
+          console.log('[Layout] Preserved user edit draft in Edit Mode');
+          return draft;
+        }
+      }
+    } catch (e) {
+      console.warn('[Layout] Draft parse failed:', e);
+    }
+  }
+
   try {
     const res = await fetch(`${getApiBase()}/layout`);
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     const data: FactoryLayout = await res.json();
-    factoryLayout.version = data.version;
-    factoryLayout.nodes = data.nodes || [];
-    factoryLayout.edges = data.edges || [];
-    factoryLayout.props = data.props || [];
-    clearLayoutDirty();
+    
+    // Do not overwrite user's work in edit mode
+    if (forceFromServer || currentAppMode.value !== 'edit' || !hasUnsavedChanges.value) {
+      factoryLayout.version = data.version;
+      factoryLayout.nodes = data.nodes || [];
+      factoryLayout.edges = data.edges || [];
+      factoryLayout.props = data.props || [];
+      clearLayoutDirty();
+    }
     console.log('[Layout] Loaded layout from backend:', data);
     return data;
   } catch (err) {

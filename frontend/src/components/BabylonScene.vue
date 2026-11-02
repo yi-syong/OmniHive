@@ -34,21 +34,6 @@
             <Move :size="14" />
             <span>選取移動</span>
           </button>
-
-          <!-- 90-degree Rotation Button (Cargo / Node / Prop) -->
-          <button 
-            :class="['tool-btn', 'rotate-tool-btn', { active: !!selectedEditorNodeId || !!selectedEditorPropId }]"
-            :disabled="!selectedEditorNodeId && !selectedEditorPropId"
-            @click="rotateSelectedElement(90)"
-            :title="selectedEditorNodeId || selectedEditorPropId ? `順時針旋轉 90° (當前: ${selectedElementRotationDeg}°，快速鍵: R)` : '請先選取站點或物件以進行 90 度旋轉'"
-          >
-            <RotateCw :size="14" />
-            <span>旋轉 90°</span>
-            <span v-if="selectedEditorNodeId || selectedEditorPropId" class="rotate-deg-badge">
-              {{ selectedElementRotationDeg }}°
-            </span>
-            <kbd class="key-hint">R</kbd>
-          </button>
           
           <button 
             :class="['tool-btn', { active: currentEditorTool === 'add_node' }]"
@@ -233,29 +218,33 @@
               <Check v-if="!cargoContextMenu.node.has_cargo" :size="13" class="check-mark" />
             </button>
           </div>
-
-          <div class="cargo-rotate-group">
-            <button 
-              type="button" 
-              class="cargo-pill-btn rotate-menu-btn"
-              @click="rotateNode(cargoContextMenu.node.id, 90)"
-              title="將此站點與貨物順時針旋轉 90 度 (快速鍵: R)"
-            >
-              <RotateCw :size="13" />
-              <span>旋轉 90° (目前 {{ Math.round(((cargoContextMenu.node.rotationY || 0) * 180 / Math.PI)) % 360 }}°)</span>
-              <kbd class="key-hint">R</kbd>
-            </button>
-          </div>
         </div>
       </div>
     </transition>
 
 
 
+    <!-- Minimized Task Capsule (Allows full map visibility without clutter) -->
+    <transition name="fade">
+      <div 
+        v-if="currentAppMode === 'simulate' && is3DQuickDispatchActive && isMissionPanelMinimized"
+        class="mission-minimized-capsule"
+        @click="isMissionPanelMinimized = false"
+        title="點擊展開完整任務派遣面板"
+      >
+        <span class="capsule-pulse-dot"></span>
+        <div class="capsule-text">
+          <span class="capsule-title">{{ selectedVehicleId }} 派工</span>
+          <span class="capsule-route">{{ currentAgvStartNode }} ➔ {{ quickDispatchSteps[0]?.node_id || '未設定' }} ({{ quickDispatchSteps.length }}站)</span>
+        </div>
+        <ChevronRight :size="14" class="capsule-chevron" />
+      </div>
+    </transition>
+
     <!-- Item 1: Non-blocking Left-side Floating Mission Dispatch Panel -->
     <transition name="slide-left">
       <div 
-        v-if="currentAppMode === 'simulate' && is3DQuickDispatchActive" 
+        v-if="currentAppMode === 'simulate' && is3DQuickDispatchActive && !isMissionPanelMinimized" 
         class="mission-dispatch-panel"
       >
         <div class="mission-panel-header">
@@ -268,9 +257,14 @@
               </span>
             </div>
           </div>
-          <button class="mission-panel-close" @click="closeQuickDispatch" title="關閉任務派遣">
-            <X :size="15" />
-          </button>
+          <div class="mission-header-btn-group">
+            <button class="mission-panel-min-btn" @click="isMissionPanelMinimized = true" title="最小化面板 (釋放地圖視野)">
+              <Minimize2 :size="13" />
+            </button>
+            <button class="mission-panel-close" @click="closeQuickDispatch" title="關閉任務派遣">
+              <X :size="15" />
+            </button>
+          </div>
         </div>
 
         <div class="mission-panel-body custom-scrollbar">
@@ -297,11 +291,11 @@
             </button>
           </div>
 
-          <!-- Starting Position Summary -->
+          <!-- Starting Position Summary (Concept Icon: Flag 起點) -->
           <div class="mission-start-badge">
-            <div class="start-dot"></div>
+            <Flag :size="14" class="text-emerald shrink-0" />
             <div class="start-text">
-              <span class="start-lbl">出發站點</span>
+              <span class="start-lbl">起點站點</span>
               <span class="start-val">{{ currentAgvStartNode }} ({{ getNodeNameOnly(currentAgvStartNode) }})</span>
             </div>
           </div>
@@ -322,7 +316,10 @@
                 @click="activeStepIndex = idx"
               >
                 <div class="step-card-top">
-                  <div class="step-index-badge">第 {{ idx + 1 }} 站</div>
+                  <div class="step-index-badge">
+                    <Target v-if="idx === quickDispatchSteps.length - 1" :size="12" class="text-cyan inline-icon" />
+                    <span>第 {{ idx + 1 }} 站{{ idx === quickDispatchSteps.length - 1 ? ' (終點)' : '' }}</span>
+                  </div>
                   <div class="step-node-select-wrap">
                     <select 
                       v-model="step.node_id" 
@@ -347,7 +344,8 @@
                     @click.stop="toggleStationCargo(getNodeObj(step.node_id)!)"
                     :title="getNodeObj(step.node_id)?.has_cargo ? '點擊設為無貨' : '點擊設為有貨'"
                   >
-                    <Package :size="11" />
+                    <PackageMinus v-if="getNodeObj(step.node_id)?.has_cargo" :size="11" />
+                    <PackagePlus v-else :size="11" />
                     <span>{{ getNodeObj(step.node_id)?.has_cargo ? '有貨' : '無貨' }}</span>
                   </button>
                   <button 
@@ -370,7 +368,7 @@
                       @click.stop="setStepAction(idx, 'none')"
                       title="純移動：抵達後不停留直接完成任務或往下一站"
                     >
-                      <Navigation :size="12" />
+                      <Shuffle :size="12" />
                       <span>純移動</span>
                     </button>
                     <button 
@@ -410,7 +408,7 @@
                       @click.stop="setStepAction(idx, 'charge')"
                       :title="isChargingNode(step.node_id) ? '充電' : '⚠️ 非充電樁，無法充電'"
                     >
-                      <Zap :size="12" />
+                      <BatteryCharging :size="12" />
                       <span>充電</span>
                     </button>
                   </div>
@@ -456,8 +454,26 @@
           </div>
         </div>
 
-        <!-- Launch & Abort Footer -->
+        <!-- Launch & Abort Footer (附帶步驟 ④: 派工確認摘要) -->
         <div class="mission-panel-footer">
+          <!-- Step 4 Confirmation Summary Card -->
+          <div v-if="!isCurrentVehicleBusy && quickDispatchSteps.length > 0" class="mission-preflight-card">
+            <div class="preflight-head">
+              <span class="preflight-badge">步驟 ④</span>
+              <span class="preflight-title">任務確認摘要</span>
+            </div>
+            <div class="preflight-body">
+              <div class="preflight-route">
+                <span class="p-start">{{ currentAgvStartNode }}</span>
+                <span class="p-arrow">➔</span>
+                <span class="p-dest">{{ quickDispatchSteps.map(s => s.node_id).join(' ➔ ') }}</span>
+              </div>
+              <div class="preflight-meta">
+                <span class="p-action">動作: {{ quickDispatchSteps.map(s => getStepActionDesc(s.action)).join(', ') }}</span>
+              </div>
+            </div>
+          </div>
+
           <button 
             v-if="isCurrentVehicleBusy"
             type="button"
@@ -483,7 +499,6 @@
   </div>
 </template>
 
-
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { 
@@ -496,7 +511,6 @@ import {
   Trash2, 
   Save, 
   RotateCcw,
-  RotateCw,
   X, 
   XCircle,
   Check,
@@ -506,10 +520,14 @@ import {
   Package,
   PackagePlus,
   PackageMinus,
-  Zap,
-  Navigation,
+  BatteryCharging,
+  Shuffle,
   Clock,
-  AlertTriangle
+  Flag,
+  Target,
+  AlertTriangle,
+  Minimize2,
+  ChevronRight
 } from 'lucide-vue-next';
 import * as BABYLON from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
@@ -523,6 +541,7 @@ import {
   onVisualEvent, 
   markLayoutDirty, 
   clearLayoutDirty,
+  hasUnsavedChanges,
   is3DQuickDispatchActive,
   quickDispatchSteps,
   sendDispatchOrder,
@@ -532,7 +551,8 @@ import {
   selectVehicle,
   dashboardActiveTab,
   cameraFollowTrigger,
-  fleetVehicles
+  fleetVehicles,
+  currentTimeScale
 } from '../services/websocket';
 import type { LayoutNode, LayoutProp, LayoutEdge, DispatchAction } from '../types';
 
@@ -597,6 +617,21 @@ const isCurrentVehicleBusy = computed(() => {
   return st === 'DRIVING' || st === 'ACTING' || isWait;
 });
 
+// Left floating mission dispatch panel minimize toggle
+const isMissionPanelMinimized = ref(false);
+
+function getStepActionDesc(action?: string): string {
+  switch (action) {
+    case 'pick': return '取貨';
+    case 'drop': return '放貨';
+    case 'wait': return '停等';
+    case 'charge': return '充電';
+    case 'none':
+    default:
+      return '通過';
+  }
+}
+
 function handleCancelCurrentMission() {
   const vId = selectedVehicleId.value || 'AGV-001';
   cancelOrder(vId, '使用者手動中止任務 / 解除卡死');
@@ -639,10 +674,10 @@ const baseLiftPosY = ref<number>(0);
 const newNodeFunction = ref<'Transit' | 'Wait' | 'Idle/Charge' | 'Cargo'>('Transit');
 
 const nodeTypeOptions = [
-  { value: 'Transit' as const, label: '通道點', icon: Navigation, desc: '導航通道點' },
-  { value: 'Wait' as const, label: '等待點', icon: Clock, desc: '原地等待點' },
-  { value: 'Idle/Charge' as const, label: '充電站', icon: Zap, desc: '充電樁站點' },
-  { value: 'Cargo' as const, label: '貨物站', icon: Package, desc: '取放貨棧板站' },
+  { value: 'Transit' as const, label: '交會點', icon: Shuffle, desc: '路網交會通道點 (藍色 🔀)' },
+  { value: 'Wait' as const, label: '等待點', icon: Clock, desc: '原地等待避車點 (黃色 🕒)' },
+  { value: 'Idle/Charge' as const, label: '充電站', icon: BatteryCharging, desc: '自動充電樁 (青色 [⚡])' },
+  { value: 'Cargo' as const, label: '貨物站', icon: PackagePlus, desc: '取放貨棧板站 (橘色 📦)' },
 ];
 
 // Right-click Cargo Context Menu (Requirement 5)
@@ -667,6 +702,7 @@ const MIN_CLEARANCE_DIST = 1.0;
 // Station Pallet & Cargo Meshes
 const stationPalletMap = new Map<string, BABYLON.AbstractMesh>();
 const stationCargoMap = new Map<string, BABYLON.AbstractMesh>();
+const nodeTextureMap = new Map<string, { texture: BABYLON.DynamicTexture, plane: BABYLON.Mesh }>();
 
 // Interactive Rubber-band connection state & Edge configuration
 const edgeFirstNodeId = ref<string | null>(null);
@@ -675,33 +711,589 @@ const edgeDirectionMode = ref<'oneway' | 'bidirectional'>('oneway');
 let rubberBandLine: BABYLON.LinesMesh | null = null;
 let nodeSelectionRing: BABYLON.Mesh | null = null;
 
+// High-Fidelity 3D Edge Preview System
+let previewEdgeTube: BABYLON.Mesh | null = null;
+let previewEdgeArrows: BABYLON.AbstractMesh[] = [];
+let previewTargetSnapRing: BABYLON.Mesh | null = null;
+let previewEndpointReticle: BABYLON.Mesh | null = null;
+let previewEdgeBadge: BABYLON.Mesh | null = null;
+let previewHoverStartRing: BABYLON.Mesh | null = null;
+
 // Edit Mode Selected Element Tracking & 90-Degree Stepped Rotation
 const selectedEditorNodeId = ref<string | null>(null);
 const selectedEditorPropId = ref<string | null>(null);
 
-const selectedElementRotationDeg = computed(() => {
-  if (selectedEditorNodeId.value) {
-    const n = factoryLayout.nodes.find(item => item.id === selectedEditorNodeId.value);
-    if (n) {
-      const deg = Math.round(((n.rotationY || 0) * 180) / Math.PI) % 360;
-      return deg < 0 ? deg + 360 : deg;
-    }
-  } else if (selectedEditorPropId.value) {
-    const p = factoryLayout.props.find(item => item.id === selectedEditorPropId.value);
-    if (p) {
-      const deg = Math.round(((p.rotationY || 0) * 180) / Math.PI) % 360;
-      return deg < 0 ? deg + 360 : deg;
-    }
-  }
-  return 0;
-});
+// Interactive 3D Rotation & Directional Widget around Selected Node
+let nodeRotationWidgetRoot: BABYLON.TransformNode | null = null;
+let nodeRotationWidgetMeshes: BABYLON.AbstractMesh[] = [];
 
-function rotateSelectedElement(deltaDegrees: number = 90) {
-  if (selectedEditorNodeId.value) {
-    rotateNode(selectedEditorNodeId.value, deltaDegrees);
-  } else if (selectedEditorPropId.value) {
-    rotateProp(selectedEditorPropId.value, deltaDegrees);
+// Smart Alignment Guides & Snapping State
+let alignmentGuideLinesMesh: BABYLON.LinesMesh | null = null;
+let alignmentMarkersMesh: BABYLON.LinesMesh | null = null;
+let ghostPlacementPad: BABYLON.Mesh | null = null;
+let ghostPlacementRing: BABYLON.Mesh | null = null;
+let ghostCadDynamicTexture: BABYLON.DynamicTexture | null = null;
+let ghostPadMaterial: BABYLON.StandardMaterial | null = null;
+let ghostRingMaterial: BABYLON.StandardMaterial | null = null;
+
+function getNodeObj(nodeId: string): LayoutNode | undefined {
+  return factoryLayout.nodes.find(n => n.id === nodeId);
+}
+
+function isCargoNode(nodeId: string): boolean {
+  const n = getNodeObj(nodeId);
+  return !!n && (n.function === 'Cargo' || n.function === 'Pick-up' || n.function === 'Drop-off');
+}
+
+function drawLargeDirectionArrow(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  angleRad: number,
+  isActive: boolean
+) {
+  ctx.clearRect(0, 0, w, h);
+  const cx = w / 2;
+  const cy = h / 2;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angleRad);
+
+  // Large, bold, sharp directional arrow shape (NO circular outer frame!)
+  ctx.beginPath();
+  ctx.moveTo(0, -104);
+  ctx.lineTo(92, 10);
+  ctx.lineTo(40, 10);
+  ctx.lineTo(40, 100);
+  ctx.lineTo(-40, 100);
+  ctx.lineTo(-40, 10);
+  ctx.lineTo(-92, 10);
+  ctx.closePath();
+
+  if (isActive) {
+    // Glowing vibrant Amber active state
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = '#f59e0b';
+    ctx.fill();
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 7;
+    ctx.stroke();
+
+    // Inner bright core
+    ctx.beginPath();
+    ctx.moveTo(0, -80);
+    ctx.lineTo(60, 0);
+    ctx.lineTo(24, 0);
+    ctx.lineTo(24, 80);
+    ctx.lineTo(-24, 80);
+    ctx.lineTo(-24, 0);
+    ctx.lineTo(-60, 0);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.fill();
+  } else {
+    // Cyberpunk electric cyan neon arrow
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(0, 24, 38, 0.82)';
+    ctx.fill();
+
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // Inner subtle chevron notch accent
+    ctx.beginPath();
+    ctx.moveTo(0, -64);
+    ctx.lineTo(46, -4);
+    ctx.lineTo(20, -4);
+    ctx.lineTo(0, -32);
+    ctx.lineTo(-20, -4);
+    ctx.lineTo(-46, -4);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 240, 255, 0.40)';
+    ctx.fill();
   }
+
+  ctx.restore();
+}
+
+function createNodeRotationWidget(sc: BABYLON.Scene, _nodeMesh: BABYLON.AbstractMesh, nodeId: string) {
+  clearNodeRotationWidget();
+
+  const node = factoryLayout.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  const currentDeg = Math.round(((node.rotationY || 0) * 180) / Math.PI) % 360;
+  const normalizedDeg = ((currentDeg % 360) + 360) % 360;
+
+  const cx = _nodeMesh?.position?.x ?? node.x;
+  const cz = _nodeMesh?.position?.z ?? node.z;
+  const y = (isCargoNode(nodeId) && node.has_cargo) ? 0.175 : 0.046;
+
+  // Root TransformNode for widget so arrows move synchronously with the node during drag
+  nodeRotationWidgetRoot = new BABYLON.TransformNode(`NodeRotWidgetRoot_${nodeId}`, sc);
+  nodeRotationWidgetRoot.position.set(cx, y, cz);
+
+  // Helper to create 3D bold planar arrow markers (NO extra lines, clean floating arrows)
+  const makeArrow = (
+    btnName: string, 
+    relX: number, 
+    relZ: number, 
+    angleRad: number,
+    deg: number,
+    isActive: boolean
+  ) => {
+    const arrowPlane = BABYLON.MeshBuilder.CreatePlane(btnName, {
+      width: 0.52,
+      height: 0.52
+    }, sc);
+    arrowPlane.rotation.x = Math.PI / 2;
+    arrowPlane.position.set(relX, 0.005, relZ);
+    arrowPlane.parent = nodeRotationWidgetRoot;
+    arrowPlane.metadata = { type: 'rotate_action', action: 'set', deg, id: nodeId };
+    arrowPlane.isPickable = true;
+
+    const dt = new BABYLON.DynamicTexture(`Tex_${btnName}`, { width: 256, height: 256 }, sc, false);
+    dt.hasAlpha = true;
+    const ctx = dt.getContext() as unknown as CanvasRenderingContext2D;
+    drawLargeDirectionArrow(ctx, 256, 256, angleRad, isActive);
+    dt.update();
+
+    const mat = new BABYLON.StandardMaterial(`Mat_${btnName}`, sc);
+    mat.diffuseTexture = dt;
+    mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+    mat.useAlphaFromDiffuseTexture = true;
+    mat.disableLighting = true;
+    mat.backFaceCulling = false;
+    arrowPlane.material = mat;
+
+    nodeRotationWidgetMeshes.push(arrowPlane);
+  };
+
+  // 4 Directional Arrows (Fixed World Orientation: ↑=0°, →=90°, ↓=180°, ←=270°)
+  const arrowDist = 0.78;
+  makeArrow(`BtnDir_Up_${nodeId}`, 0, arrowDist, 0, 0, normalizedDeg === 0);
+  makeArrow(`BtnDir_Right_${nodeId}`, arrowDist, 0, Math.PI / 2, 90, normalizedDeg === 90);
+  makeArrow(`BtnDir_Down_${nodeId}`, 0, -arrowDist, Math.PI, 180, normalizedDeg === 180);
+  makeArrow(`BtnDir_Left_${nodeId}`, -arrowDist, 0, -Math.PI / 2, 270, normalizedDeg === 270);
+}
+
+function clearNodeRotationWidget() {
+  for (const m of nodeRotationWidgetMeshes) {
+    if (m.material) m.material.dispose();
+    m.dispose();
+  }
+  nodeRotationWidgetMeshes.length = 0;
+  if (nodeRotationWidgetRoot) {
+    nodeRotationWidgetRoot.dispose();
+    nodeRotationWidgetRoot = null;
+  }
+}
+
+// ----------------------------------------------------
+// Smart Alignment Guides & Grid Snapping Engine
+// ----------------------------------------------------
+interface SmartSnapResult {
+  snappedX: number;
+  snappedZ: number;
+  alignedNodesX: LayoutNode[];
+  alignedNodesZ: LayoutNode[];
+}
+
+function computeSmartSnap(
+  rawX: number,
+  rawZ: number,
+  excludeNodeId?: string,
+  snapThreshold: number = 0.35,
+  gridStep: number = 0.5
+): SmartSnapResult {
+  let snappedX = Math.round(rawX / gridStep) * gridStep;
+  let snappedZ = Math.round(rawZ / gridStep) * gridStep;
+  const alignedNodesX: LayoutNode[] = [];
+  const alignedNodesZ: LayoutNode[] = [];
+
+  let minDiffX = snapThreshold;
+  let minDiffZ = snapThreshold;
+
+  for (const node of factoryLayout.nodes) {
+    if (excludeNodeId && node.id === excludeNodeId) continue;
+
+    const diffX = Math.abs(rawX - node.x);
+    if (diffX < minDiffX) {
+      minDiffX = diffX;
+      snappedX = node.x;
+      alignedNodesX.length = 0;
+      alignedNodesX.push(node);
+    } else if (Math.abs(diffX - minDiffX) < 0.001 && diffX < snapThreshold) {
+      alignedNodesX.push(node);
+    }
+
+    const diffZ = Math.abs(rawZ - node.z);
+    if (diffZ < minDiffZ) {
+      minDiffZ = diffZ;
+      snappedZ = node.z;
+      alignedNodesZ.length = 0;
+      alignedNodesZ.push(node);
+    } else if (Math.abs(diffZ - minDiffZ) < 0.001 && diffZ < snapThreshold) {
+      alignedNodesZ.push(node);
+    }
+  }
+
+  return {
+    snappedX: Math.round(snappedX * 100) / 100,
+    snappedZ: Math.round(snappedZ * 100) / 100,
+    alignedNodesX,
+    alignedNodesZ
+  };
+}
+
+function clearAlignmentGuideLines() {
+  if (alignmentGuideLinesMesh) {
+    alignmentGuideLinesMesh.dispose();
+    alignmentGuideLinesMesh = null;
+  }
+  if (alignmentMarkersMesh) {
+    alignmentMarkersMesh.dispose();
+    alignmentMarkersMesh = null;
+  }
+}
+
+function updateAlignmentGuideLines(
+  _sc: BABYLON.Scene,
+  _posX: number,
+  _posZ: number,
+  _alignedNodesX: LayoutNode[],
+  _alignedNodesZ: LayoutNode[]
+) {
+  clearAlignmentGuideLines();
+}
+
+function drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+interface NodeStyleProfile {
+  nameZh: string;
+  subZh: string;
+  icon: string;
+  themeColor: string;
+  badgeBg: string;
+  bgGradStart: string;
+  bgGradEnd: string;
+}
+
+function getNodeStyleProfile(func: string): NodeStyleProfile {
+  switch (func) {
+    case 'Wait':
+      return {
+        nameZh: '等待點',
+        subZh: 'WAIT / STANDBY',
+        icon: '🕒',
+        themeColor: '#facc15', // Concept Diagram Yellow
+        badgeBg: 'rgba(250, 204, 21, 0.25)',
+        bgGradStart: 'rgba(50, 40, 10, 0.75)',
+        bgGradEnd: 'rgba(20, 15, 5, 0.50)'
+      };
+    case 'Cargo':
+    case 'Pick-up':
+    case 'Drop-off':
+      return {
+        nameZh: '貨物站',
+        subZh: 'CARGO / PALLET',
+        icon: '📦',
+        themeColor: '#f97316', // Vibrant Industrial Orange
+        badgeBg: 'rgba(249, 115, 22, 0.25)',
+        bgGradStart: 'rgba(60, 25, 5, 0.75)',
+        bgGradEnd: 'rgba(25, 10, 0, 0.50)'
+      };
+    case 'Idle/Charge':
+    case 'Charge':
+      return {
+        nameZh: '充電站',
+        subZh: 'POWER / CHARGE',
+        icon: '⚡',
+        themeColor: '#00f0ff', // Electric Cyan
+        badgeBg: 'rgba(0, 240, 255, 0.25)',
+        bgGradStart: 'rgba(0, 40, 60, 0.75)',
+        bgGradEnd: 'rgba(0, 15, 25, 0.50)'
+      };
+    case 'Transit':
+    default:
+      return {
+        nameZh: '交會點',
+        subZh: 'TRANSIT / INTERSECT',
+        icon: '🔀',
+        themeColor: '#38bdf8', // Deep Sky Blue
+        badgeBg: 'rgba(56, 189, 248, 0.25)',
+        bgGradStart: 'rgba(15, 30, 65, 0.75)',
+        bgGradEnd: 'rgba(5, 10, 28, 0.50)'
+      };
+  }
+}
+
+function drawCadPlacementFootprint(ctx: CanvasRenderingContext2D, w: number, h: number, func: string = 'Transit') {
+  ctx.clearRect(0, 0, w, h);
+
+  const profile = getNodeStyleProfile(func);
+  const pad = 14;
+  const innerW = w - pad * 2;
+  const innerH = h - pad * 2;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // 1. Sleek Themed Holographic Background Fill
+  const gradient = ctx.createRadialGradient(cx, cy, 30, cx, cy, innerW / 2);
+  gradient.addColorStop(0, profile.bgGradStart);
+  gradient.addColorStop(1, profile.bgGradEnd);
+  ctx.fillStyle = gradient;
+  drawRoundRect(ctx, pad, pad, innerW, innerH, 16);
+  ctx.fill();
+
+  // 2. Blueprint Alignment Grid
+  ctx.strokeStyle = `${profile.themeColor}22`;
+  ctx.lineWidth = 1;
+  const cols = 6;
+  const rows = 5;
+  for (let i = 1; i < cols; i++) {
+    const gx = pad + (innerW / cols) * i;
+    ctx.beginPath();
+    ctx.moveTo(gx, pad);
+    ctx.lineTo(gx, pad + innerH);
+    ctx.stroke();
+  }
+  for (let j = 1; j < rows; j++) {
+    const gy = pad + (innerH / rows) * j;
+    ctx.beginPath();
+    ctx.moveTo(pad, gy);
+    ctx.lineTo(pad + innerW, gy);
+    ctx.stroke();
+  }
+
+  // 3. Central Target Rings
+  ctx.beginPath();
+  ctx.arc(cx, cy, 64, 0, Math.PI * 2);
+  ctx.strokeStyle = `${profile.themeColor}88`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 36, 0, Math.PI * 2);
+  ctx.fillStyle = `${profile.themeColor}26`;
+  ctx.fill();
+  ctx.strokeStyle = profile.themeColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 4. Large Node Type Icon in Center
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 54px "Segoe UI Symbol", "Apple Color Emoji", sans-serif';
+  ctx.shadowColor = profile.themeColor;
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = profile.themeColor;
+  ctx.fillText(profile.icon, cx, cy - 14);
+  ctx.shadowBlur = 0;
+
+  // 5. Central Function Badge Pill
+  const badgeW = 210;
+  const badgeH = 26;
+  const badgeX = cx - badgeW / 2;
+  const badgeY = cy + 28;
+  ctx.fillStyle = profile.badgeBg;
+  drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 6);
+  ctx.fill();
+  ctx.strokeStyle = profile.themeColor;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  ctx.font = 'bold 13px "JetBrains Mono", "PingFang TC", "Microsoft JhengHei", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`${profile.nameZh}  •  ${profile.subZh}`, cx, badgeY + badgeH / 2 + 1);
+
+  // 6. Subtle Dashed Alignment Crosshairs through Center
+  ctx.strokeStyle = `${profile.themeColor}66`;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(cx, pad + 18);
+  ctx.lineTo(cx, cy - 66);
+  ctx.moveTo(cx, cy + 66);
+  ctx.lineTo(cx, pad + innerH - 18);
+  ctx.moveTo(pad + 18, cy);
+  ctx.lineTo(cx - 66, cy);
+  ctx.moveTo(cx + 66, cy);
+  ctx.lineTo(pad + innerW - 18, cy);
+  ctx.stroke();
+  ctx.setLineDash([]); // clear dash
+
+  // 7. Outer Sleek Rounded Border with Glow
+  ctx.save();
+  ctx.shadowColor = profile.themeColor;
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = `${profile.themeColor}99`;
+  ctx.lineWidth = 2;
+  drawRoundRect(ctx, pad, pad, innerW, innerH, 16);
+  ctx.stroke();
+  ctx.restore();
+
+  // 8. Signature Industrial CAD Corner L-Brackets
+  const bLen = 34;
+  const bThick = 4.5;
+  ctx.strokeStyle = profile.themeColor;
+  ctx.lineWidth = bThick;
+  ctx.lineCap = 'square';
+
+  // Top-Left
+  ctx.beginPath();
+  ctx.moveTo(pad, pad + bLen);
+  ctx.lineTo(pad, pad);
+  ctx.lineTo(pad + bLen, pad);
+  ctx.stroke();
+
+  // Top-Right
+  ctx.beginPath();
+  ctx.moveTo(pad + innerW - bLen, pad);
+  ctx.lineTo(pad + innerW, pad);
+  ctx.lineTo(pad + innerW, pad + bLen);
+  ctx.stroke();
+
+  // Bottom-Right
+  ctx.beginPath();
+  ctx.moveTo(pad + innerW, pad + innerH - bLen);
+  ctx.lineTo(pad + innerW, pad + innerH);
+  ctx.lineTo(pad + innerW - bLen, pad + innerH);
+  ctx.stroke();
+
+  // Bottom-Left
+  ctx.beginPath();
+  ctx.moveTo(pad + bLen, pad + innerH);
+  ctx.lineTo(pad, pad + innerH);
+  ctx.lineTo(pad, pad + innerH - bLen);
+  ctx.stroke();
+
+  // 9. Docking / Alignment Chevron Arrow (Top / Heading 0°)
+  ctx.fillStyle = profile.themeColor;
+  ctx.beginPath();
+  ctx.moveTo(cx, pad - 2);
+  ctx.lineTo(cx - 18, pad + 18);
+  ctx.lineTo(cx - 9, pad + 18);
+  ctx.lineTo(cx, pad + 8);
+  ctx.lineTo(cx + 9, pad + 18);
+  ctx.lineTo(cx + 18, pad + 18);
+  ctx.closePath();
+  ctx.fill();
+
+  // 10. Technical Blueprint Dimensions Typography
+  ctx.fillStyle = profile.themeColor;
+  ctx.font = '700 12px "JetBrains Mono", Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('1.40 m', cx, pad + innerH - 6);
+
+  ctx.save();
+  ctx.translate(pad + 16, cy);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('1.20 m', 0, 0);
+  ctx.restore();
+
+  // Bay footprint watermark
+  ctx.font = '700 11px "JetBrains Mono", Consolas, monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = profile.themeColor;
+  ctx.fillText(`${profile.nameZh} 預覽 [1.4m x 1.2m]`, pad + 14, pad + 22);
+}
+
+function ensureGhostPlacementPad(sc: BABYLON.Scene) {
+  if (!ghostPlacementPad) {
+    ghostPlacementPad = BABYLON.MeshBuilder.CreateCylinder('GhostPlacementPad', {
+      diameter: 0.85,
+      height: 0.02,
+      tessellation: 32
+    }, sc);
+    ghostPadMaterial = new BABYLON.StandardMaterial('GhostPadMat', sc);
+    const col = getNodeColor(newNodeFunction.value);
+    ghostPadMaterial.diffuseColor = col;
+    ghostPadMaterial.emissiveColor = col.scale(0.8);
+    ghostPadMaterial.alpha = 0.35;
+    ghostPlacementPad.material = ghostPadMaterial;
+    ghostPlacementPad.isPickable = false;
+
+    ghostPlacementRing = BABYLON.MeshBuilder.CreateTorus('GhostPlacementRing', {
+      diameter: 0.95,
+      thickness: 0.02,
+      tessellation: 32
+    }, sc);
+    ghostPlacementRing.parent = ghostPlacementPad;
+    ghostPlacementRing.position.set(0, 0.005, 0);
+    ghostRingMaterial = new BABYLON.StandardMaterial('GhostRingMat', sc);
+    ghostRingMaterial.emissiveColor = col;
+    ghostRingMaterial.alpha = 0.70;
+    ghostPlacementRing.material = ghostRingMaterial;
+    ghostPlacementRing.isPickable = false;
+
+    // Professional CAD Holographic Alignment Footprint Frame (1.4m x 1.2m)
+    const ghostCadPlane = BABYLON.MeshBuilder.CreatePlane('GhostCadFootprint', {
+      width: 1.4,
+      height: 1.2
+    }, sc);
+    ghostCadPlane.rotation.x = Math.PI / 2;
+    ghostCadPlane.position.set(0, 0.008, 0);
+    ghostCadPlane.parent = ghostPlacementPad;
+    ghostCadPlane.isPickable = false;
+
+    ghostCadDynamicTexture = new BABYLON.DynamicTexture('GhostCadTex', { width: 512, height: 440 }, sc, false);
+    ghostCadDynamicTexture.hasAlpha = true;
+    const ctx = ghostCadDynamicTexture.getContext() as unknown as CanvasRenderingContext2D;
+    drawCadPlacementFootprint(ctx, 512, 440, newNodeFunction.value);
+    ghostCadDynamicTexture.update();
+
+    const cadMat = new BABYLON.StandardMaterial('GhostCadMat', sc);
+    cadMat.diffuseTexture = ghostCadDynamicTexture;
+    cadMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+    cadMat.useAlphaFromDiffuseTexture = true;
+    cadMat.disableLighting = true;
+    cadMat.backFaceCulling = false;
+    ghostCadPlane.material = cadMat;
+
+    ghostPlacementPad.setEnabled(false);
+  }
+}
+
+function updateGhostPadVisual(sc: BABYLON.Scene, func: 'Transit' | 'Wait' | 'Idle/Charge' | 'Cargo') {
+  ensureGhostPlacementPad(sc);
+  if (!ghostCadDynamicTexture) return;
+  const ctx = ghostCadDynamicTexture.getContext() as unknown as CanvasRenderingContext2D;
+  drawCadPlacementFootprint(ctx, 512, 440, func);
+  ghostCadDynamicTexture.update();
+
+  const color = getNodeColor(func);
+  if (ghostPadMaterial) {
+    ghostPadMaterial.diffuseColor = color;
+    ghostPadMaterial.emissiveColor = color.scale(0.85);
+  }
+  if (ghostRingMaterial) {
+    ghostRingMaterial.emissiveColor = color;
+  }
+}
+
+function hideGhostPlacementPad() {
+  if (ghostPlacementPad) {
+    ghostPlacementPad.setEnabled(false);
+  }
+  clearAlignmentGuideLines();
 }
 
 function rotateNode(nodeId: string, deltaDegrees: number = 90) {
@@ -719,13 +1311,38 @@ function rotateNode(nodeId: string, deltaDegrees: number = 90) {
   const pad = nodeMeshesMap.get(nodeId);
   if (pad) {
     pad.rotation.y = nextRad;
+    if (scene && selectedEditorNodeId.value === nodeId) {
+      createNodeRotationWidget(scene, pad, nodeId);
+    }
   }
   if (cargoContextMenu.value.node?.id === nodeId) {
     cargoContextMenu.value.node.rotationY = nextRad;
   }
 
   markLayoutDirty();
-  emit('notify', `已將站點 ${node.name || node.id} 旋轉至 ${nextDeg}°（取放貨進叉角度已同步）`, 'info');
+  emit('notify', `已將站點 ${node.name || node.id} 轉向至 ${nextDeg}°`, 'info');
+}
+
+function setNodeHeading(nodeId: string, targetDeg: number) {
+  const node = factoryLayout.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  const nextDeg = ((targetDeg % 360) + 360) % 360;
+  const nextRad = Math.round(((nextDeg * Math.PI) / 180) * 10000) / 10000;
+  node.rotationY = nextRad;
+
+  const pad = nodeMeshesMap.get(nodeId);
+  if (pad) {
+    pad.rotation.y = nextRad;
+    if (scene && selectedEditorNodeId.value === nodeId) {
+      createNodeRotationWidget(scene, pad, nodeId);
+    }
+  }
+  if (cargoContextMenu.value.node?.id === nodeId) {
+    cargoContextMenu.value.node.rotationY = nextRad;
+  }
+
+  markLayoutDirty();
+  emit('notify', `已將站點 ${node.name || node.id} 轉向至 ${nextDeg}°`, 'info');
 }
 
 function rotateProp(propId: string, deltaDegrees: number = 90) {
@@ -745,6 +1362,14 @@ function rotateProp(propId: string, deltaDegrees: number = 90) {
   }
   markLayoutDirty();
   emit('notify', `已將物件 ${propId} 旋轉至 ${nextDeg}°`, 'info');
+}
+
+function rotateSelectedElement(deltaDegrees: number = 90) {
+  if (selectedEditorNodeId.value) {
+    rotateNode(selectedEditorNodeId.value, deltaDegrees);
+  } else if (selectedEditorPropId.value) {
+    rotateProp(selectedEditorPropId.value, deltaDegrees);
+  }
 }
 
 // Kinematics Interpolation
@@ -811,7 +1436,9 @@ onMounted(async () => {
     if (event === 'pick_start') {
       if (!isPickAnimationRunning) {
         isPickAnimationRunning = true;
-        // 在進叉起升時刻 (約 1.1s 後) 隱藏站點靜態貨物，由車輛抬升牙叉接管，徹底避免重疊！
+        const scale = currentTimeScale.value || 1;
+        const pickDelay = Math.max(150, Math.round(1100 / scale));
+        // 在進叉起升時刻隱藏站點靜態貨物，由車輛抬升牙叉接管，徹底避免重疊！
         setTimeout(() => {
           if (currNodeId) {
             const stNode = factoryLayout.nodes.find(n => n.id === currNodeId);
@@ -819,10 +1446,11 @@ onMounted(async () => {
               toggleStationCargo(stNode, false);
             }
           }
-        }, 1100);
+        }, pickDelay);
 
         performPickAnimation(scene!, vId).finally(() => {
-          setTimeout(() => { isPickAnimationRunning = false; }, 3800);
+          const resetDelay = Math.max(500, Math.round(3800 / scale));
+          setTimeout(() => { isPickAnimationRunning = false; }, resetDelay);
         });
       }
     } else if (event === 'pick_done') {
@@ -831,7 +1459,9 @@ onMounted(async () => {
     } else if (event === 'drop_start') {
       if (!isDropAnimationRunning) {
         isDropAnimationRunning = true;
-        // 在放貨降落時刻 (約 2.1s 後) 將貨物交棒由站點棧板顯示
+        const scale = currentTimeScale.value || 1;
+        const dropDelay = Math.max(200, Math.round(2100 / scale));
+        // 在放貨降落時刻將貨物交棒由站點棧板顯示
         setTimeout(() => {
           if (currNodeId) {
             const stNode = factoryLayout.nodes.find(n => n.id === currNodeId);
@@ -839,13 +1469,22 @@ onMounted(async () => {
               toggleStationCargo(stNode, true);
             }
           }
-        }, 2100);
+        }, dropDelay);
 
         performDropAnimation(scene!, vId);
-        setTimeout(() => { isDropAnimationRunning = false; }, 3800);
+        const resetDelay = Math.max(500, Math.round(3800 / scale));
+        setTimeout(() => { isDropAnimationRunning = false; }, resetDelay);
       }
     } else if (event === 'drop_done') {
       isDropAnimationRunning = false;
+      // 放貨完成，立即強制徹底清理車輛上可能殘留的棧板與貨物模型
+      clearVehicleCargo(vId);
+      if (currNodeId) {
+        const stNode = factoryLayout.nodes.find(n => n.id === currNodeId);
+        if (stNode && isCargoNode(stNode.id)) {
+          toggleStationCargo(stNode, true);
+        }
+      }
     }
   });
 
@@ -859,10 +1498,9 @@ onMounted(async () => {
     () => agvState.task_info.has_cargo,
     (hasCargo) => {
       if (hasCargo && !cargoMesh && !isPickAnimationRunning && agvState.task_info.status !== 'ACTING' && scene) {
-        mountStaticCargo(scene);
-      } else if (!hasCargo && cargoMesh && !isDropAnimationRunning && agvState.task_info.status !== 'ACTING') {
-        cargoMesh.dispose();
-        cargoMesh = null;
+        mountStaticCargo(scene, 'AGV-001');
+      } else if (!hasCargo && (cargoMesh || vehicleVisuals.get('AGV-001')?.cargoMesh) && !isDropAnimationRunning && agvState.task_info.status !== 'ACTING') {
+        clearVehicleCargo('AGV-001');
       }
     },
     { immediate: true }
@@ -898,6 +1536,17 @@ onMounted(async () => {
           visual.trafficWaitMesh.isVisible = !!vData.task_info?.is_traffic_wait;
         }
 
+        // 確保車輛載貨與棧板視覺完全符合後端狀態機
+        if (vData.task_info) {
+          if (vData.task_info.has_cargo === false && !isDropAnimationRunning && vData.task_info.status !== 'ACTING') {
+            if (visual.cargoMesh || (vId === 'AGV-001' && cargoMesh)) {
+              clearVehicleCargo(vId);
+            }
+          } else if (vData.task_info.has_cargo === true && !visual.cargoMesh && !isPickAnimationRunning && vData.task_info.status !== 'ACTING') {
+            mountStaticCargo(scene, vId);
+          }
+        }
+
         updateVehicleOverheadBadge(scene, visual, vData);
         updateVehicleTrajectory(scene, visual, vData);
 
@@ -921,18 +1570,26 @@ onMounted(async () => {
     }
   );
 
-  // Watch all fleet edge & node states to keep path tubes illuminated during travel
+  // Watch all fleet edge & node states to keep path tubes illuminated and station status rings updated
   watch(
     () => [
       agvState.edge_states, 
       agvState.passed_edges, 
       agvState.node_states,
+      agvState.task_info?.current_node,
+      agvState.task_info?.status,
       ...Object.values(fleetVehicles).map(v => v.edge_states),
       ...Object.values(fleetVehicles).map(v => v.passed_edges),
-      ...Object.values(fleetVehicles).map(v => v.node_states)
+      ...Object.values(fleetVehicles).map(v => v.node_states),
+      ...Object.values(fleetVehicles).map(v => v.task_info?.current_node),
+      ...Object.values(fleetVehicles).map(v => v.task_info?.status),
+      quickDispatchSteps.value.length,
+      currentAgvStartNode.value,
+      is3DQuickDispatchActive.value
     ],
     () => {
       updateDynamicPathMaterials();
+      updateAllNodeTextures();
     },
     { deep: true }
   );
@@ -942,6 +1599,42 @@ onMounted(async () => {
       setCameraView('follow');
     }
   });
+
+  watch(
+    () => newNodeFunction.value,
+    (func) => {
+      if (scene && currentEditorTool.value === 'add_node') {
+        updateGhostPadVisual(scene, func);
+      }
+    }
+  );
+
+  watch(
+    () => edgeDirectionMode.value,
+    () => {
+      if (currentAppMode.value === 'edit' && currentEditorTool.value === 'add_edge' && edgeFirstNodeId.value && scene) {
+        const startNode = factoryLayout.nodes.find(n => n.id === edgeFirstNodeId.value);
+        if (!startNode) return;
+        const startPoint = new BABYLON.Vector3(startNode.x, 0.05, startNode.z);
+        let endPoint: BABYLON.Vector3 | null = null;
+        let isSnapped = false;
+        let targetId: string | null = null;
+        if (hoveredNodeId.value) {
+          const targetNode = factoryLayout.nodes.find(n => n.id === hoveredNodeId.value);
+          if (targetNode) {
+            endPoint = new BABYLON.Vector3(targetNode.x, 0.05, targetNode.z);
+            isSnapped = true;
+            targetId = hoveredNodeId.value;
+          }
+        } else if (previewEndpointReticle) {
+          endPoint = previewEndpointReticle.position.clone();
+        }
+        if (endPoint) {
+          updateEdgeCreationPreview(scene, startPoint, endPoint, isSnapped, targetId);
+        }
+      }
+    }
+  );
 
   function syncNodeDragBehaviors() {
     const canDrag = (currentAppMode.value === 'edit' && currentEditorTool.value === 'select');
@@ -975,6 +1668,13 @@ onMounted(async () => {
         gizmoManager.attachToMesh(null);
         gizmoManager.positionGizmoEnabled = false;
         gizmoManager.rotationGizmoEnabled = false;
+      }
+
+      if (mode !== 'edit' || tool !== 'add_node') {
+        hideGhostPlacementPad();
+      }
+      if (mode !== 'edit' || tool !== 'select') {
+        clearNodeSelection();
       }
     }
   );
@@ -1017,6 +1717,15 @@ onMounted(async () => {
 
       if (currentView.value === 'follow' && camera && selectedVehicleId.value === v.id) {
         camera.target = BABYLON.Vector3.Lerp(camera.target, v.root.position, 0.1);
+      }
+
+      // Live animated battery charging loop
+      const vData = fleetVehicles[v.id] || (v.id === 'AGV-001' ? agvState : null);
+      if (vData) {
+        const isCharging = !!vData.battery?.charging || vData.task_info?.action === 'charge' || vData.task_info?.display_message?.includes('充電');
+        if (isCharging && scene) {
+          updateVehicleOverheadBadge(scene, v, vData);
+        }
       }
     }
 
@@ -1062,7 +1771,24 @@ function handleKeyDown(e: KeyboardEvent) {
     const activeTag = (document.activeElement?.tagName || '').toLowerCase();
     if (activeTag !== 'input' && activeTag !== 'textarea') {
       e.preventDefault();
-      rotateSelectedElement(90);
+      rotateSelectedElement(e.shiftKey ? -90 : 90);
+    }
+  } else if (currentAppMode.value === 'edit' && selectedEditorNodeId.value && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+    if (activeTag !== 'input' && activeTag !== 'textarea') {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setNodeHeading(selectedEditorNodeId.value, 0);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setNodeHeading(selectedEditorNodeId.value, 90);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setNodeHeading(selectedEditorNodeId.value, 180);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setNodeHeading(selectedEditorNodeId.value, 270);
+      }
     }
   }
 }
@@ -1301,6 +2027,102 @@ function createTrafficWaitIndicator(sc: BABYLON.Scene, parentRoot: BABYLON.Trans
 // ----------------------------------------------------
 // Requirement 3: Vehicle Overhead Dynamic Holographic Totem Emblem (No tiny text!)
 // ----------------------------------------------------
+function drawChargingBatteryBadge(ctx: CanvasRenderingContext2D, now: number) {
+  ctx.clearRect(0, 0, 256, 256);
+
+  // 1. Outer Dark Emerald/Cyan Glass Container with pulsing neon glow
+  const pulse = 0.75 + 0.25 * Math.sin(now * 0.006);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(128, 128, 112, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(4, 32, 38, 0.94)';
+  ctx.fill();
+
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = `rgba(0, 245, 255, ${pulse})`;
+  ctx.shadowColor = '#00f5ff';
+  ctx.shadowBlur = 22;
+  ctx.stroke();
+
+  // Thin inner accent circle
+  ctx.beginPath();
+  ctx.arc(128, 128, 98, 0, Math.PI * 2);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(0, 245, 255, 0.45)';
+  ctx.shadowBlur = 0;
+  ctx.stroke();
+
+  // 2. Vertical Battery Body
+  const bx = 86;
+  const by = 82;
+  const bw = 84;
+  const bh = 122;
+  const br = 10;
+
+  // Battery terminal (+) on top
+  const tw = 36;
+  const th = 10;
+  const tx = 128 - tw / 2;
+  const ty = by - th + 2;
+  drawRoundRect(ctx, tx, ty, tw, th, 4);
+  ctx.fillStyle = '#00f5ff';
+  ctx.shadowColor = '#00f5ff';
+  ctx.shadowBlur = 10;
+  ctx.fill();
+
+  // Battery casing outline
+  drawRoundRect(ctx, bx, by, bw, bh, br);
+  ctx.fillStyle = 'rgba(2, 16, 22, 0.90)';
+  ctx.fill();
+  ctx.strokeStyle = '#00f5ff';
+  ctx.lineWidth = 5;
+  ctx.shadowColor = '#00f5ff';
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+
+  // 3. Animated Energy Fill Level (4 Segmented Bars from bottom to top)
+  const cycle = (now % 1400) / 1400; // 0.0 to 1.0 (1.4s cycle)
+  const totalBars = 4;
+  const barSpacing = 4;
+  const innerPad = 7;
+  const innerW = bw - innerPad * 2;
+  const innerH = bh - innerPad * 2;
+  const singleBarH = (innerH - (totalBars - 1) * barSpacing) / totalBars;
+
+  let activeBars = Math.floor(cycle * (totalBars + 1));
+  if (activeBars > totalBars) activeBars = totalBars;
+
+  for (let i = 0; i < totalBars; i++) {
+    const barY = by + bh - innerPad - (i + 1) * singleBarH - i * barSpacing;
+    const isLit = i < activeBars;
+
+    if (isLit) {
+      const colors = ['#10b981', '#34d399', '#38bdf8', '#00f5ff'];
+      ctx.fillStyle = colors[i] || '#00f5ff';
+      ctx.shadowColor = colors[i] || '#00f5ff';
+      ctx.shadowBlur = 12;
+      drawRoundRect(ctx, bx + innerPad, barY, innerW, singleBarH, 4);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = 'rgba(0, 245, 255, 0.08)';
+      ctx.shadowBlur = 0;
+      drawRoundRect(ctx, bx + innerPad, barY, innerW, singleBarH, 4);
+      ctx.fill();
+    }
+  }
+
+  // 4. Center Glowing Lightning Icon ⚡ Overlay
+  ctx.font = 'bold 36px "Segoe UI Symbol", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#fef08a';
+  ctx.shadowBlur = 14;
+  ctx.fillText('⚡', 128, 143);
+
+  ctx.restore();
+}
+
 function updateVehicleOverheadBadge(
   sc: BABYLON.Scene,
   visual: VehicleVisual,
@@ -1327,13 +2149,24 @@ function updateVehicleOverheadBadge(
   }
 
   const isCharging = !!vData.battery?.charging || vData.task_info?.action === 'charge' || vData.task_info?.display_message?.includes('充電');
+  if (isCharging) {
+    visual.lastBadgeSig = ''; // Force continuous animation update
+    const tex = visual.overheadBadgeTexture;
+    if (tex) {
+      const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
+      drawChargingBatteryBadge(ctx, performance.now());
+      tex.update();
+    }
+    return;
+  }
+
   const isTrafficWait = !!vData.task_info?.is_traffic_wait;
   const isActing = vData.task_info?.status === 'ACTING';
   const action = vData.task_info?.action;
   const isDriving = vData.task_info?.status === 'DRIVING';
 
   // Signature based purely on visual state (no tiny battery text)
-  const stateKey = isCharging ? 'charge' : (isTrafficWait ? 'wait' : (isActing ? `acting_${action}` : (isDriving ? 'driving' : 'idle')));
+  const stateKey = isTrafficWait ? 'wait' : (isActing ? `acting_${action}` : (isDriving ? 'driving' : 'idle'));
   const sig = `${visual.id}_${stateKey}`;
   if (visual.lastBadgeSig === sig) return;
   visual.lastBadgeSig = sig;
@@ -1350,15 +2183,7 @@ function updateVehicleOverheadBadge(
   let totemColor = '#34d399';
   let fontSize = 135;
 
-  if (isCharging) {
-    // ⚡ Electric Cyan / Emerald Lightning Totem
-    ringColor = '#00f5ff';
-    glowColor = '#00f5ff';
-    innerBg = 'rgba(4, 47, 46, 0.92)';
-    totemGlyph = '⚡';
-    totemColor = '#00f5ff';
-    fontSize = 160;
-  } else if (isTrafficWait) {
+  if (isTrafficWait) {
     // 🛑 Crimson Alert Stop Totem
     ringColor = '#ef4444';
     glowColor = '#f43f5e';
@@ -1597,13 +2422,38 @@ const GLB_FORK_LIFT_UNITS = 48;     // agv.glb 牙叉節點 (Object001) 在模�
 let forkRestTopY = 0.10;            // 牙叉放下時的上緣高度
 let forkLiftMeters = 0.28;          // 牙叉抬升高度
 
-const cargoGroundY = () => CARGO_HALF;                                   // 貨箱貼地時中心高度
-const cargoElevatedY = () => forkRestTopY + forkLiftMeters + CARGO_HALF;  // 貨箱置於抬升牙叉上的中心高度
+const cargoGroundY = () => 0.0;                                          // 棧板貼地時底面高度
+const cargoElevatedY = () => forkRestTopY + forkLiftMeters;             // 棧板置於抬升牙叉上的高度
 
 function getForkLiftTargetY(liftNode: BABYLON.TransformNode | BABYLON.Mesh): number {
   return liftNode.name === 'Object001'
     ? baseLiftPosY.value + GLB_FORK_LIFT_UNITS
     : baseLiftPosY.value + forkLiftMeters;
+}
+
+/** 載入 plastic_pallet.glb 並依階層包圍盒正規化，寬度 1.2m */
+async function loadNormalizedPallet(sc: BABYLON.Scene): Promise<BABYLON.AbstractMesh> {
+  try {
+    const result = await BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'plastic_pallet.glb', sc);
+    const palletRoot = result.meshes[0];
+    palletRoot.name = 'PlasticPallet';
+    const bounds = palletRoot.getHierarchyBoundingVectors(true);
+    const maxHoriz = Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 0.1);
+    const s = 1.2 / maxHoriz;
+    palletRoot.scaling.setAll(s);
+    for (const m of result.meshes) {
+      m.isPickable = true;
+    }
+    return palletRoot;
+  } catch (err) {
+    console.warn('[Pallet] plastic_pallet.glb 載入失敗，改用程序化棧板:', err);
+    const box = BABYLON.MeshBuilder.CreateBox('PalletFallback', { width: 1.2, height: 0.14, depth: 1.0 }, sc);
+    const mat = new BABYLON.StandardMaterial('PalletMat', sc);
+    mat.diffuseColor = new BABYLON.Color3(0.12, 0.28, 0.48);
+    box.material = mat;
+    box.isPickable = true;
+    return box;
+  }
 }
 
 /** 載入 guess_box.glb 並依階層包圍盒正規化為 CARGO_SIZE 邊長、中心置於原點 */
@@ -1637,11 +2487,20 @@ async function loadNormalizedCargo(sc: BABYLON.Scene): Promise<BABYLON.AbstractM
   }
 }
 
-/** 包一層 TransformNode，讓正規化偏移與動畫位置互不干擾 */
+/** 包一層 TransformNode，讓車載貨物同時具備棧板與貨物（有貨時=棧板+貨物） */
 async function createCargoHolder(sc: BABYLON.Scene, y: number, parentRoot: BABYLON.TransformNode | null = agvRoot): Promise<BABYLON.TransformNode> {
   const holder = new BABYLON.TransformNode('CargoHolder', sc);
+
+  // 1. 牙叉底部的棧板 (plastic pallet)
+  const pallet = await loadNormalizedPallet(sc);
+  pallet.parent = holder;
+  pallet.position.set(0, 0, 0);
+
+  // 2. 棧板頂部的貨箱 (箱底緊貼棧板上表面，棧板高約 0.14m)
   const box = await loadNormalizedCargo(sc);
   box.parent = holder;
+  box.position.set(0, 0.14 + CARGO_HALF, 0);
+
   if (parentRoot) {
     holder.parent = parentRoot;
   }
@@ -1649,13 +2508,43 @@ async function createCargoHolder(sc: BABYLON.Scene, y: number, parentRoot: BABYL
   return holder;
 }
 
-async function mountStaticCargo(sc: BABYLON.Scene) {
-  if (!agvRoot || cargoMesh) return;
-  const liftNode = (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
+/** 清理指定車輛上的任何貨物與棧板，並將牙叉復位至最低休息高度 */
+function clearVehicleCargo(vehicleId: string) {
+  const visual = vehicleVisuals.get(vehicleId);
+  if (visual?.cargoMesh) {
+    visual.cargoMesh.dispose();
+    visual.cargoMesh = null;
+  }
+  if (vehicleId === 'AGV-001' && cargoMesh) {
+    cargoMesh.dispose();
+    cargoMesh = null;
+  }
+  const root = visual?.root || (vehicleId === 'AGV-001' ? agvRoot : null);
+  if (root) {
+    const children = root.getChildren ? root.getChildren() : [];
+    for (const child of children) {
+      if (child.name.includes('Cargo') || child.name.includes('Holder') || child.name.includes('Pallet')) {
+        child.dispose();
+      }
+    }
+  }
+  const liftNode = visual?.liftNode || (selectedLiftNodeName.value && scene ? scene.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
+  if (liftNode && 'position' in liftNode) {
+    liftNode.position.y = baseLiftPosY.value;
+  }
+}
 
-  cargoMesh = await createCargoHolder(sc, cargoElevatedY(), agvRoot);
+async function mountStaticCargo(sc: BABYLON.Scene, vehicleId: string = 'AGV-001') {
+  const visual = vehicleVisuals.get(vehicleId);
+  const root = visual?.root || agvRoot;
+  if (!root) return;
+  if (visual?.cargoMesh || (vehicleId === 'AGV-001' && cargoMesh)) return;
 
-  // 已載貨狀態：牙叉保持抬升
+  const holder = await createCargoHolder(sc, cargoElevatedY(), root);
+  if (visual) visual.cargoMesh = holder;
+  if (vehicleId === 'AGV-001') cargoMesh = holder;
+
+  const liftNode = visual?.liftNode || (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
   if (liftNode && 'position' in liftNode) {
     liftNode.position.y = getForkLiftTargetY(liftNode);
   }
@@ -1666,23 +2555,17 @@ async function performPickAnimation(sc: BABYLON.Scene, vehicleId: string = 'AGV-
   const root = visual?.root || agvRoot;
   if (!root) return;
 
-  if (visual?.cargoMesh) {
-    visual.cargoMesh.dispose();
-    visual.cargoMesh = null;
-  }
-  if (vehicleId === 'AGV-001' && cargoMesh) {
-    cargoMesh.dispose();
-    cargoMesh = null;
-  }
+  clearVehicleCargo(vehicleId);
 
   const liftNode = visual?.liftNode || (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
-
-  // 1. 牙叉先保持在貼地最低點 (進叉伸入棧板底孔階段)
   if (liftNode && 'position' in liftNode) {
     liftNode.position.y = baseLiftPosY.value;
   }
 
-  // 2. 等待車體完全伸入棧板底部後 (約 1.1s)，牙叉起升將貨物抬起！
+  const scale = currentTimeScale.value || 1.0;
+  const liftDelayMs = Math.max(250, Math.round(1100 / scale));
+
+  // 伸入棧板底部後，牙叉連同棧板與貨物一同托起升空！
   setTimeout(async () => {
     const holder = await createCargoHolder(sc, cargoGroundY(), root);
     if (visual) visual.cargoMesh = holder;
@@ -1691,7 +2574,6 @@ async function performPickAnimation(sc: BABYLON.Scene, vehicleId: string = 'AGV-
     const ease = new BABYLON.CubicEase();
     ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
 
-    // 牙叉上升 (起升抬貨)
     if (liftNode && 'position' in liftNode) {
       BABYLON.Animation.CreateAndStartAnimation(
         'forkPickAnim', liftNode, 'position.y', 30, 30,
@@ -1700,26 +2582,28 @@ async function performPickAnimation(sc: BABYLON.Scene, vehicleId: string = 'AGV-
       );
     }
 
-    // 貨箱隨牙叉被托起升空
     BABYLON.Animation.CreateAndStartAnimation(
       'boxPickAnim', holder, 'position.y', 30, 30,
       cargoGroundY(), cargoElevatedY(),
       BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease
     );
-  }, 1100);
+  }, liftDelayMs);
 }
 
 function performDropAnimation(sc: BABYLON.Scene, vehicleId: string = 'AGV-001') {
   const visual = vehicleVisuals.get(vehicleId);
   const liftNode = visual?.liftNode || (selectedLiftNodeName.value ? sc.getNodeByName(selectedLiftNodeName.value) : null) as BABYLON.TransformNode | BABYLON.Mesh | null;
-  const holder = visual?.cargoMesh || cargoMesh;
+  const holder = visual?.cargoMesh || (vehicleId === 'AGV-001' ? cargoMesh : null);
 
-  // 等待車體帶著高位貨物前進至棧板正上方 (約 1.1s) 後，牙叉平穩降下放貨
+  const scale = currentTimeScale.value || 1.0;
+  const dropWaitMs = Math.max(250, Math.round(1100 / scale));
+  const disposeDelayMs = Math.max(200, Math.round(1000 / scale));
+
   setTimeout(() => {
     const ease = new BABYLON.CubicEase();
     ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
 
-    // 牙叉下降 (放貨到棧板)
+    // 牙叉下降 (放貨到棧板/地面)
     if (liftNode && 'position' in liftNode) {
       BABYLON.Animation.CreateAndStartAnimation(
         'forkDropAnim', liftNode, 'position.y', 30, 30,
@@ -1729,30 +2613,53 @@ function performDropAnimation(sc: BABYLON.Scene, vehicleId: string = 'AGV-001') 
     }
 
     if (holder) {
-      if (visual) visual.cargoMesh = null;
-      if (vehicleId === 'AGV-001') cargoMesh = null;
-
-      // 貨箱隨牙叉平穩降到地面棧板
+      // 貨箱與棧板隨牙叉平穩降到地面
       BABYLON.Animation.CreateAndStartAnimation(
         'cargoLowerToGround', holder, 'position.y', 30, 30,
         holder.position.y, cargoGroundY(),
         BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease
       );
 
-      // 降到地面後脫離 AGV，由站點棧板接收
+      // 降到地面後脫離 AGV，由站點棧板接收並徹底銷毀車載模型
       setTimeout(() => {
-        if (!holder.isDisposed()) {
-          holder.dispose();
+        try {
+          if (!holder.isDisposed()) {
+            holder.dispose();
+          }
+        } catch (e) {
+          console.warn('Disposing dropped cargo holder:', e);
         }
-      }, 1000);
+        clearVehicleCargo(vehicleId);
+      }, disposeDelayMs);
     }
-  }, 1100);
+  }, dropWaitMs);
 }
 
 // ----------------------------------------------------
 // 3.1 & 3.5 Layout Rendering & Directional Arrows
 // ----------------------------------------------------
 async function loadAndRenderLayout(sc: BABYLON.Scene) {
+  // If in edit mode with unsaved changes, preserve and restore user's in-progress edits from localStorage!
+  if (currentAppMode.value === 'edit' && hasUnsavedChanges.value) {
+    try {
+      const draftStr = localStorage.getItem('omnihive_edit_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        if (draft && draft.nodes && draft.nodes.length > 0) {
+          factoryLayout.version = draft.version || '2.0.0';
+          factoryLayout.nodes = draft.nodes;
+          factoryLayout.edges = draft.edges || [];
+          factoryLayout.props = draft.props || [];
+          rebuildLayoutInScene(sc);
+          console.log('[BabylonScene] Restored edit draft upon load');
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse draft in BabylonScene:', e);
+    }
+  }
+
   await fetchLayout();
   rebuildLayoutInScene(sc);
 }
@@ -1766,6 +2673,8 @@ function rebuildLayoutInScene(sc: BABYLON.Scene) {
 
   stationCargoMap.forEach(m => m.dispose());
   stationCargoMap.clear();
+
+  nodeTextureMap.clear();
 
 
 
@@ -1804,12 +2713,12 @@ function rebuildLayoutInScene(sc: BABYLON.Scene) {
 function getNodeColor(func: string): BABYLON.Color3 {
   switch (func) {
     case 'Idle/Charge':
-    case 'Charge': return new BABYLON.Color3(0.06, 0.75, 1.0); // Cyan
-    case 'Transit': return new BABYLON.Color3(0.24, 0.55, 0.98); // Blue
-    case 'Wait': return new BABYLON.Color3(0.96, 0.62, 0.04); // Amber
-    case 'Cargo': return new BABYLON.Color3(0.96, 0.62, 0.04); // Amber
-    case 'Pick-up': return new BABYLON.Color3(0.06, 0.73, 0.51); // Emerald (legacy)
-    case 'Drop-off': return new BABYLON.Color3(0.66, 0.33, 0.97); // Purple (legacy)
+    case 'Charge': return new BABYLON.Color3(0.06, 0.75, 1.0); // Electric Cyan #00f0ff
+    case 'Transit': return new BABYLON.Color3(0.24, 0.55, 0.98); // Deep Sky Blue #3b82f6
+    case 'Wait': return new BABYLON.Color3(0.66, 0.33, 0.97); // Vivid Royal Purple #a855f7
+    case 'Cargo':
+    case 'Pick-up':
+    case 'Drop-off': return new BABYLON.Color3(0.98, 0.45, 0.09); // Vibrant Logistics Orange #f97316
     default: return new BABYLON.Color3(0.5, 0.5, 0.6);
   }
 }
@@ -1818,7 +2727,7 @@ function getNodeFunctionLabel(func: string): string {
   switch (func) {
     case 'Idle/Charge':
     case 'Charge': return '充電站';
-    case 'Transit': return '通道點';
+    case 'Transit': return '交會點';
     case 'Wait': return '等待點';
     case 'Cargo':
     case 'Pick-up':
@@ -1831,7 +2740,7 @@ function getNodeTypeDefaultDesc(func: string): string {
   switch (func) {
     case 'Idle/Charge':
     case 'Charge': return 'AGV 自動充電樁';
-    case 'Transit': return '導航通道點（純移動不停留）';
+    case 'Transit': return '路網交會點（導航移動通道）';
     case 'Wait': return '原地等待避車點（停留待命）';
     case 'Cargo':
     case 'Pick-up':
@@ -1851,15 +2760,6 @@ function getNodeNameOnly(id: string): string {
   if (!id) return '';
   const n = factoryLayout.nodes.find(node => node.id === id);
   return n ? n.name : id;
-}
-
-function getNodeObj(nodeId: string): LayoutNode | undefined {
-  return factoryLayout.nodes.find(n => n.id === nodeId);
-}
-
-function isCargoNode(nodeId: string): boolean {
-  const n = getNodeObj(nodeId);
-  return !!n && (n.function === 'Cargo' || n.function === 'Pick-up' || n.function === 'Drop-off');
 }
 
 /**
@@ -1991,49 +2891,443 @@ function checkObjectClearanceCollision(
 }
 
 /**
- * 切換貨物站點的棧板載貨狀態 (有貨 / 無貨)
+ * 切換貨物站點的棧板載貨狀態 (有貨: 棧板+貨物 / 無貨: 無棧板無貨物)
  */
 async function toggleStationCargo(node: LayoutNode, forceState?: boolean) {
   if (!node || !isCargoNode(node.id)) return;
   const newState = forceState !== undefined ? forceState : !node.has_cargo;
   node.has_cargo = newState;
 
+  const pad = nodeMeshesMap.get(node.id);
   const existingCargo = stationCargoMap.get(node.id);
+  const existingPallet = stationPalletMap.get(node.id);
+
   if (newState) {
+    if (pad) {
+      pad.position.y = 0.16;
+    }
+    if (!existingPallet && scene) {
+      try {
+        const palletRoot = await loadNormalizedPallet(scene);
+        palletRoot.name = `StationPallet_${node.id}`;
+        palletRoot.metadata = { type: 'node', id: node.id, subType: 'pallet' };
+        if (pad) {
+          palletRoot.parent = pad;
+          palletRoot.position.set(0, -0.16, 0);
+        } else {
+          palletRoot.position.set(node.x, 0, node.z);
+        }
+        for (const m of (palletRoot.getChildMeshes ? palletRoot.getChildMeshes() : [])) {
+          m.metadata = { type: 'node', id: node.id, subType: 'pallet' };
+          m.isPickable = true;
+        }
+        stationPalletMap.set(node.id, palletRoot);
+      } catch (err) {
+        console.warn('Failed to load station pallet:', err);
+      }
+    }
     if (!existingCargo && scene) {
       const boxMesh = await loadNormalizedCargo(scene);
       boxMesh.name = `StationCargo_${node.id}`;
-      const pad = nodeMeshesMap.get(node.id);
       if (pad) {
         boxMesh.parent = pad;
-        boxMesh.position.set(0, 0.14 + CARGO_HALF, 0);
+        boxMesh.position.set(0, 0.02 + CARGO_HALF, 0);
       } else {
-        boxMesh.position.set(node.x, 0.14 + CARGO_HALF, node.z);
+        boxMesh.position.set(node.x, 0.16 + 0.02 + CARGO_HALF, node.z);
       }
       boxMesh.metadata = { type: 'node', id: node.id, subType: 'cargo' };
       boxMesh.isPickable = true;
       stationCargoMap.set(node.id, boxMesh);
     }
+    const existingCargoIcon = scene?.getMeshByName(`CargoIcon_${node.id}`);
+    if (existingCargoIcon) {
+      existingCargoIcon.isVisible = false;
+    }
   } else {
+    if (pad) {
+      pad.position.y = 0.04;
+    }
     if (existingCargo) {
       existingCargo.dispose();
       stationCargoMap.delete(node.id);
     }
+    if (existingPallet) {
+      existingPallet.dispose();
+      stationPalletMap.delete(node.id);
+    }
+    const existingCargoIcon = scene?.getMeshByName(`CargoIcon_${node.id}`);
+    if (existingCargoIcon) {
+      existingCargoIcon.isVisible = true;
+    }
   }
+  updateNodeTexture(node.id);
   markLayoutDirty();
-  emit('notify', `${node.name || node.id}: 已設為「${node.has_cargo ? '有貨' : '無貨'}」`, 'info');
+  emit('notify', `${node.name || node.id}: 已設為「${node.has_cargo ? '有貨 (棧板+貨物)' : '無貨 (無棧板)'}」`, 'info');
+}
+
+/**
+ * 依據「工業 AGV 智能工廠 3D 監控界面 UX/UI 概念圖」繪製站點地面動態向量貼圖
+ * - 雙層同心發光環 (Double Concentric Status Rings)
+ *   正常綠 (#10b981) / 使用中藍 (#0ea5e9) / 等待中黃 (#facc15) / 被佔用橘 (#f97316) / 封鎖紫 (#a855f7) / 故障紅 (#ef4444)
+ * - 站點功能核心圖標：
+ *   充電站：橫向圓角電池 + 正極柱 + 充電閃電 [ ⚡ ]
+ *   取貨站：3D 軸測貨物箱 + 向上箭頭 ⬆📦
+ *   放貨站：3D 軸測貨物箱 + 向下箭頭 ⬇📦
+ *   等待點：標準圓形時鐘錶盤 + 指針 🕒
+ *   交會點：交會雙箭頭 🔀
+ *   起點標籤：旗幟 🚩
+ *   終點標籤：同心圓靶心 🎯
+ */
+function drawStationIconTexture(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  node: LayoutNode,
+  status: 'normal' | 'active' | 'waiting' | 'occupied' | 'fault' = 'normal',
+  badge?: 'start' | 'target' | null
+) {
+  const cx = width / 2;
+  const cy = height / 2;
+  ctx.clearRect(0, 0, width, height);
+
+  // Status Palette (Double concentric rings & glows from concept diagram)
+  let ringColor = '#10b981'; // 正常 Green
+  let glowColor = 'rgba(16, 185, 129, 0.85)';
+  let iconColor = '#34d399';
+  let bgGlow = 'rgba(16, 185, 129, 0.16)';
+
+  if (status === 'active') {
+    ringColor = '#0ea5e9'; // 使用中 Sky Blue
+    glowColor = 'rgba(14, 165, 233, 0.9)';
+    iconColor = '#38bdf8';
+    bgGlow = 'rgba(14, 165, 233, 0.18)';
+  } else if (status === 'waiting') {
+    ringColor = '#facc15'; // 等待中 Yellow
+    glowColor = 'rgba(250, 204, 21, 0.9)';
+    iconColor = '#fde047';
+    bgGlow = 'rgba(250, 204, 21, 0.18)';
+  } else if (status === 'occupied') {
+    ringColor = '#f97316'; // 被佔用 Orange
+    glowColor = 'rgba(249, 115, 22, 0.9)';
+    iconColor = '#fb923c';
+    bgGlow = 'rgba(249, 115, 22, 0.18)';
+  } else if (status === 'fault') {
+    ringColor = '#ef4444'; // 故障 Red
+    glowColor = 'rgba(239, 68, 68, 0.95)';
+    iconColor = '#f87171';
+    bgGlow = 'rgba(239, 68, 68, 0.22)';
+  }
+
+  // 1. Semi-transparent dark slate floor base
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 238, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(10, 15, 29, 0.88)';
+  ctx.fill();
+
+  // 2. Radial status glow in center
+  const radial = ctx.createRadialGradient(cx, cy, 20, cx, cy, 230);
+  radial.addColorStop(0, bgGlow);
+  radial.addColorStop(1, 'rgba(10, 15, 29, 0)');
+  ctx.fillStyle = radial;
+  ctx.fill();
+
+  // 3. Double concentric status rings (Signature Blueprint)
+  // Outer Ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, 230, 0, Math.PI * 2);
+  ctx.strokeStyle = ringColor;
+  ctx.lineWidth = 5.5;
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = 18;
+  ctx.stroke();
+
+  // Inner Ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, 196, 0, Math.PI * 2);
+  ctx.strokeStyle = ringColor;
+  ctx.lineWidth = 8.5;
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = 24;
+  ctx.stroke();
+
+  // Concentric guideline between rings
+  ctx.beginPath();
+  ctx.arc(cx, cy, 213, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 0;
+  ctx.stroke();
+  ctx.restore();
+
+  // 4. Center Vector Icons
+  ctx.save();
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = 18;
+
+  const func = node.function;
+  const isCargo = isCargoNode(node.id) || func === 'Cargo' || func === 'Pick-up' || func === 'Drop-off';
+  const isCharge = func === 'Idle/Charge' || func === 'Charge' || node.name.includes('充電');
+  const isWait = func === 'Wait';
+
+  if (badge === 'start') {
+    // 起點標籤：Waving flag on pole
+    ctx.strokeStyle = '#10b981';
+    ctx.fillStyle = '#10b981';
+    ctx.lineWidth = 9;
+    ctx.lineCap = 'round';
+    // Pole
+    ctx.beginPath();
+    ctx.moveTo(cx - 30, cy + 68);
+    ctx.lineTo(cx - 30, cy - 68);
+    ctx.stroke();
+    // Banner
+    ctx.beginPath();
+    ctx.moveTo(cx - 30, cy - 68);
+    ctx.bezierCurveTo(cx - 5, cy - 80, cx + 25, cy - 58, cx + 58, cy - 68);
+    ctx.lineTo(cx + 58, cy - 14);
+    ctx.bezierCurveTo(cx + 25, cy - 4, cx - 5, cy - 24, cx - 30, cy - 14);
+    ctx.closePath();
+    ctx.fill();
+  } else if (badge === 'target') {
+    // 終點標籤：Bullseye target
+    ctx.strokeStyle = '#0ea5e9';
+    ctx.fillStyle = '#0ea5e9';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 68, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 42, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (isCharge) {
+    // 充電站：Horizontal rounded battery with terminal and lightning bolt
+    const bw = 155;
+    const bh = 92;
+    const rx = cx - bw / 2 - 8;
+    const ry = cy - bh / 2;
+    ctx.strokeStyle = iconColor;
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.roundRect(rx, ry, bw, bh, 18);
+    ctx.stroke();
+
+    // Positive terminal
+    ctx.fillStyle = iconColor;
+    ctx.beginPath();
+    ctx.roundRect(rx + bw + 4, cy - 22, 14, 44, 5);
+    ctx.fill();
+
+    // Lightning bolt in center
+    ctx.beginPath();
+    ctx.moveTo(cx + 6, cy - 30);
+    ctx.lineTo(cx - 24, cy + 4);
+    ctx.lineTo(cx - 3, cy + 4);
+    ctx.lineTo(cx - 14, cy + 30);
+    ctx.lineTo(cx + 26, cy - 4);
+    ctx.lineTo(cx + 5, cy - 4);
+    ctx.closePath();
+    ctx.fill();
+  } else if (isWait) {
+    // 等待點：Standard round clock face with hour & minute hands
+    ctx.strokeStyle = iconColor;
+    ctx.fillStyle = iconColor;
+    ctx.lineWidth = 9;
+    // Outer clock face
+    ctx.beginPath();
+    ctx.arc(cx, cy, 74, 0, Math.PI * 2);
+    ctx.stroke();
+    // Center pivot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+    ctx.fill();
+    // Minute hand pointing to 12 o'clock
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, cy - 45);
+    ctx.stroke();
+    // Hour hand pointing to 3 o'clock
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + 34, cy);
+    ctx.stroke();
+  } else if (isCargo) {
+    // 取貨站 / 放貨站：3D Isometric box with arrow UP (取貨) or DOWN (放貨)
+    const isPick = !node.has_cargo;
+    ctx.strokeStyle = iconColor;
+    ctx.fillStyle = iconColor;
+    ctx.lineWidth = 7.5;
+    ctx.lineJoin = 'round';
+
+    if (isPick) {
+      // 取貨站：Arrow pointing UP
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 76);
+      ctx.lineTo(cx - 26, cy - 44);
+      ctx.lineTo(cx - 11, cy - 44);
+      ctx.lineTo(cx - 11, cy - 20);
+      ctx.lineTo(cx + 11, cy - 20);
+      ctx.lineTo(cx + 11, cy - 44);
+      ctx.lineTo(cx + 26, cy - 44);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // 放貨站：Arrow pointing DOWN into box
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 18);
+      ctx.lineTo(cx - 26, cy - 50);
+      ctx.lineTo(cx - 11, cy - 50);
+      ctx.lineTo(cx - 11, cy - 76);
+      ctx.lineTo(cx + 11, cy - 76);
+      ctx.lineTo(cx + 11, cy - 50);
+      ctx.lineTo(cx + 26, cy - 50);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 3D Isometric box
+    const boxY = cy + 22;
+    const s = 48;
+    // Top diamond
+    ctx.beginPath();
+    ctx.moveTo(cx, boxY - s);
+    ctx.lineTo(cx + s * 1.05, boxY - s * 0.45);
+    ctx.lineTo(cx, boxY + s * 0.1);
+    ctx.lineTo(cx - s * 1.05, boxY - s * 0.45);
+    ctx.closePath();
+    ctx.stroke();
+    // Left face
+    ctx.beginPath();
+    ctx.moveTo(cx - s * 1.05, boxY - s * 0.45);
+    ctx.lineTo(cx, boxY + s * 0.1);
+    ctx.lineTo(cx, boxY + s * 0.68);
+    ctx.lineTo(cx - s * 1.05, boxY + s * 0.12);
+    ctx.closePath();
+    ctx.stroke();
+    // Right face
+    ctx.beginPath();
+    ctx.moveTo(cx, boxY + s * 0.1);
+    ctx.lineTo(cx + s * 1.05, boxY - s * 0.45);
+    ctx.lineTo(cx + s * 1.05, boxY + s * 0.12);
+    ctx.lineTo(cx, boxY + s * 0.68);
+    ctx.closePath();
+    ctx.stroke();
+  } else {
+    // 交會點 (Transit)：Crossing shuffle arrows
+    ctx.strokeStyle = iconColor;
+    ctx.fillStyle = iconColor;
+    ctx.lineWidth = 9.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Top arrow: curves down then up-right
+    ctx.beginPath();
+    ctx.moveTo(cx - 58, cy - 34);
+    ctx.bezierCurveTo(cx - 20, cy - 34, cx + 10, cy + 34, cx + 44, cy + 34);
+    ctx.stroke();
+    // Arrow head for bottom-right
+    ctx.beginPath();
+    ctx.moveTo(cx + 28, cy + 18);
+    ctx.lineTo(cx + 58, cy + 34);
+    ctx.lineTo(cx + 28, cy + 50);
+    ctx.stroke();
+
+    // Bottom arrow: curves up then down-right
+    ctx.beginPath();
+    ctx.moveTo(cx - 58, cy + 34);
+    ctx.bezierCurveTo(cx - 20, cy + 34, cx + 10, cy - 34, cx + 44, cy - 34);
+    ctx.stroke();
+    // Arrow head for top-right
+    ctx.beginPath();
+    ctx.moveTo(cx + 28, cy - 50);
+    ctx.lineTo(cx + 58, cy - 34);
+    ctx.lineTo(cx + 28, cy - 18);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function getNodeStatus(nodeId: string): 'normal' | 'active' | 'waiting' | 'occupied' | 'fault' {
+  const node = factoryLayout.nodes.find(n => n.id === nodeId);
+  if (!node) return 'normal';
+
+  // Check if occupied by any AGV
+  for (const v of Object.values(fleetVehicles)) {
+    if (v.task_info?.current_node === nodeId) {
+      if (v.task_info?.is_traffic_wait) return 'waiting';
+      if (v.task_info?.status === 'DRIVING' || v.task_info?.status === 'ACTING') return 'active';
+      return 'occupied';
+    }
+    const dx = v.position.x - node.x;
+    const dz = v.position.z - node.z;
+    if (dx * dx + dz * dz < 0.64) {
+      if (v.task_info?.is_traffic_wait) return 'waiting';
+      if (v.task_info?.status === 'DRIVING' || v.task_info?.status === 'ACTING') return 'active';
+      return 'occupied';
+    }
+  }
+
+  // AGV-001 check
+  if (agvState.task_info?.current_node === nodeId) {
+    if (agvState.task_info?.is_traffic_wait) return 'waiting';
+    if (agvState.task_info?.status === 'DRIVING' || agvState.task_info?.status === 'ACTING') return 'active';
+    return 'occupied';
+  }
+
+  // Check if reserved by any active route
+  const isReserved = Object.values(fleetVehicles).some(v => v.node_states?.includes(nodeId)) || agvState.node_states?.includes(nodeId);
+  if (isReserved) return 'active';
+
+  // Check if cargo on station
+  if (isCargoNode(nodeId) && node.has_cargo) {
+    return 'occupied';
+  }
+
+  return 'normal';
+}
+
+function getNodeBadge(nodeId: string): 'start' | 'target' | null {
+  if (is3DQuickDispatchActive.value) {
+    if (currentAgvStartNode.value === nodeId) return 'start';
+    const lastStep = quickDispatchSteps.value[quickDispatchSteps.value.length - 1];
+    if (lastStep?.node_id === nodeId) return 'target';
+  }
+  return null;
+}
+
+function updateNodeTexture(nodeId: string) {
+  const entry = nodeTextureMap.get(nodeId);
+  if (!entry) return;
+  const node = factoryLayout.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  const ctx = entry.texture.getContext() as unknown as CanvasRenderingContext2D;
+  const status = getNodeStatus(nodeId);
+  const badge = getNodeBadge(nodeId);
+  drawStationIconTexture(ctx, 512, 512, node, status, badge);
+  entry.texture.update();
+}
+
+function updateAllNodeTextures() {
+  for (const nodeId of nodeTextureMap.keys()) {
+    updateNodeTexture(nodeId);
+  }
 }
 
 function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
-  const color = getNodeColor(node.function);
   const isCargoStation = isCargoNode(node.id);
-  const padY = 0.04;
+  const padY = (isCargoStation && node.has_cargo) ? 0.16 : 0.04;
 
-  // Station disc (increased diameter to 0.85 for easy clicking & selection)
+  // Station chassis disc
   const pad = BABYLON.MeshBuilder.CreateCylinder(`Pad_${node.id}`, {
-    diameter: 0.85,
-    height: 0.04,
-    tessellation: 32
+    diameter: 0.90,
+    height: 0.03,
+    tessellation: 36
   }, sc);
   pad.position.set(node.x, padY, node.z);
   pad.rotation.y = node.rotationY || 0;
@@ -2041,115 +3335,60 @@ function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
   pad.isPickable = true;
 
   const padMat = new BABYLON.StandardMaterial(`PadMat_${node.id}`, sc);
-  padMat.diffuseColor = color.scale(0.35);
-  padMat.emissiveColor = color.scale(0.75);
+  padMat.diffuseColor = new BABYLON.Color3(0.08, 0.12, 0.20);
+  padMat.emissiveColor = new BABYLON.Color3(0.04, 0.06, 0.10);
   pad.material = padMat;
 
-  // Outer highlight ring
-  const ring = BABYLON.MeshBuilder.CreateTorus(`Ring_${node.id}`, {
-    diameter: 0.95,
-    thickness: 0.02,
-    tessellation: 32
-  }, sc);
-  ring.parent = pad;
-  ring.position.set(0, 0.005, 0);
-  ring.material = padMat;
-  ring.isPickable = false;
+  // Vector Dynamic Texture Plane with Double Concentric Rings & Concept Blueprint Icons
+  const iconPlane = BABYLON.MeshBuilder.CreatePlane(`NodeIconPlane_${node.id}`, { size: 0.88 }, sc);
+  iconPlane.rotation.x = Math.PI / 2;
+  iconPlane.position.set(0, 0.021, 0);
+  iconPlane.parent = pad;
+  iconPlane.isPickable = false;
 
-  // If Cargo station: Plastic pallet + Cargo box (DIRECTLY PARENTED TO PAD - NEVER SEPARATED)
+  const nodeTex = new BABYLON.DynamicTexture(`NodeTex_${node.id}`, { width: 512, height: 512 }, sc, true);
+  nodeTex.hasAlpha = true;
+  const ctx = nodeTex.getContext() as unknown as CanvasRenderingContext2D;
+  const status = getNodeStatus(node.id);
+  const badge = getNodeBadge(node.id);
+  drawStationIconTexture(ctx, 512, 512, node, status, badge);
+  nodeTex.update();
+
+  const iconMat = new BABYLON.StandardMaterial(`NodeIconMat_${node.id}`, sc);
+  iconMat.diffuseTexture = nodeTex;
+  iconMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+  iconMat.useAlphaFromDiffuseTexture = true;
+  iconMat.disableLighting = true;
+  iconPlane.material = iconMat;
+
+  nodeTextureMap.set(node.id, { texture: nodeTex, plane: iconPlane });
+
+  // If Cargo station: Plastic pallet + Cargo box ONLY when node.has_cargo is true
   if (isCargoStation) {
-    BABYLON.SceneLoader.ImportMeshAsync('', '/models/', 'plastic_pallet.glb', sc).then(result => {
-      const palletRoot = result.meshes[0];
-      palletRoot.name = `StationPallet_${node.id}`;
-      palletRoot.parent = pad;
-      palletRoot.metadata = { type: 'node', id: node.id, subType: 'pallet' };
-      for (const m of result.meshes) {
-        m.metadata = { type: 'node', id: node.id, subType: 'pallet' };
-        m.isPickable = true;
-      }
-      const bounds = palletRoot.getHierarchyBoundingVectors(true);
-      const maxHoriz = Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 0.1);
-      const s = 1.2 / maxHoriz;
-      palletRoot.scaling.setAll(s);
-
-      const updatedBounds = palletRoot.getHierarchyBoundingVectors(true);
-      palletRoot.position.set(0, -updatedBounds.min.y - 0.02, 0);
-      stationPalletMap.set(node.id, palletRoot);
-    }).catch(err => {
-      console.warn('Fallback procedural pallet:', err);
-      const box = BABYLON.MeshBuilder.CreateBox(`StationPallet_${node.id}`, { width: 1.2, height: 0.14, depth: 1.0 }, sc);
-      box.parent = pad;
-      box.position.set(0, 0.07, 0);
-      const mat = new BABYLON.StandardMaterial('PalletMat', sc);
-      mat.diffuseColor = new BABYLON.Color3(0.12, 0.28, 0.48);
-      box.material = mat;
-      box.metadata = { type: 'node', id: node.id, subType: 'pallet' };
-      box.isPickable = true;
-      stationPalletMap.set(node.id, box);
-    });
-
     if (node.has_cargo) {
+      loadNormalizedPallet(sc).then(palletRoot => {
+        palletRoot.name = `StationPallet_${node.id}`;
+        palletRoot.parent = pad;
+        palletRoot.metadata = { type: 'node', id: node.id, subType: 'pallet' };
+        for (const m of (palletRoot.getChildMeshes ? palletRoot.getChildMeshes() : [])) {
+          m.metadata = { type: 'node', id: node.id, subType: 'pallet' };
+          m.isPickable = true;
+        }
+        palletRoot.position.set(0, -0.16, 0);
+        stationPalletMap.set(node.id, palletRoot);
+      }).catch(err => {
+        console.warn('Fallback procedural pallet:', err);
+      });
+
       loadNormalizedCargo(sc).then(boxMesh => {
         boxMesh.name = `StationCargo_${node.id}`;
         boxMesh.parent = pad;
-        boxMesh.position.set(0, 0.14 + CARGO_HALF, 0);
+        boxMesh.position.set(0, 0.02 + CARGO_HALF, 0);
         boxMesh.metadata = { type: 'node', id: node.id, subType: 'cargo' };
         boxMesh.isPickable = true;
         stationCargoMap.set(node.id, boxMesh);
       });
     }
-
-    // Fork entry guide markings on the pad (indicates AGV docking approach direction)
-    const entryLines: BABYLON.Vector3[][] = [
-      [new BABYLON.Vector3(-0.22, 0.005, -0.42), new BABYLON.Vector3(-0.22, 0.005, -0.22)],
-      [new BABYLON.Vector3(0.22, 0.005, -0.42), new BABYLON.Vector3(0.22, 0.005, -0.22)],
-      [new BABYLON.Vector3(-0.09, 0.005, -0.38), new BABYLON.Vector3(0, 0.005, -0.30), new BABYLON.Vector3(0.09, 0.005, -0.38)]
-    ];
-    const entryMesh = BABYLON.MeshBuilder.CreateLineSystem(`ForkEntry_${node.id}`, { lines: entryLines }, sc);
-    entryMesh.parent = pad;
-    entryMesh.color = new BABYLON.Color3(0.06, 0.75, 1.0);
-    entryMesh.isPickable = false;
-  } else if (node.function === 'Idle/Charge' || node.function === 'Charge') {
-    // Requirement 2: Glowing lightning bolt marking ⚡ directly on the station pad!
-    const zapPlane = BABYLON.MeshBuilder.CreatePlane(`ZapIcon_${node.id}`, { size: 0.65 }, sc);
-    zapPlane.rotation.x = Math.PI / 2;
-    zapPlane.position.set(0, 0.022, 0);
-    zapPlane.parent = pad;
-    zapPlane.isPickable = false;
-
-    const zapTex = new BABYLON.DynamicTexture(`ZapTex_${node.id}`, { width: 256, height: 256 }, sc, true);
-    zapTex.hasAlpha = true;
-    const ctx = zapTex.getContext() as unknown as CanvasRenderingContext2D;
-    ctx.clearRect(0, 0, 256, 256);
-    
-    // Draw glowing electric cyan ⚡ symbol
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 165px "Segoe UI Symbol", "Apple Color Emoji", sans-serif';
-    ctx.shadowColor = '#00f0ff';
-    ctx.shadowBlur = 16;
-    ctx.fillStyle = '#00f0ff';
-    ctx.fillText('⚡', 128, 130);
-    zapTex.update();
-
-    const zapMat = new BABYLON.StandardMaterial(`ZapMat_${node.id}`, sc);
-    zapMat.diffuseTexture = zapTex;
-    zapMat.emissiveColor = new BABYLON.Color3(0, 0.94, 1.0);
-    zapMat.useAlphaFromDiffuseTexture = true;
-    zapMat.disableLighting = true;
-    zapPlane.material = zapMat;
-  } else if (node.function === 'Wait') {
-    // Wait / Buffer station glowing amber floor markings
-    const wr = 0.35;
-    const y = 0.005;
-    const waitLines: BABYLON.Vector3[][] = [
-      [new BABYLON.Vector3(-wr, y, -wr), new BABYLON.Vector3(wr, y, -wr), new BABYLON.Vector3(wr, y, wr), new BABYLON.Vector3(-wr, y, wr), new BABYLON.Vector3(-wr, y, -wr)],
-      [new BABYLON.Vector3(-0.18, y, 0), new BABYLON.Vector3(0.18, y, 0)]
-    ];
-    const waitMesh = BABYLON.MeshBuilder.CreateLineSystem(`WaitMarking_${node.id}`, { lines: waitLines }, sc);
-    waitMesh.parent = pad;
-    waitMesh.color = new BABYLON.Color3(0.96, 0.62, 0.04);
-    waitMesh.isPickable = false;
   }
 
   // Direct 2D floor planar drag behavior without directional arrows
@@ -2164,27 +3403,42 @@ function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
   dragBehavior.onDragStartObservable.add(() => {
     if (camera) camera.detachControl();
     dragStartPos = { x: node.x, z: node.z };
-    highlightSelectedNode(sc, pad);
     selectedEditorNodeId.value = node.id;
     selectedEditorPropId.value = null;
     gizmoManager?.attachToMesh(null);
+    highlightSelectedNode(sc, pad);
   });
 
   dragBehavior.onDragObservable.add(() => {
-    pad.position.y = 0.04;
+    pad.position.y = (isCargoNode(node.id) && node.has_cargo) ? 0.16 : 0.04;
+    const snap = computeSmartSnap(pad.position.x, pad.position.z, node.id);
+    pad.position.x = snap.snappedX;
+    pad.position.z = snap.snappedZ;
+    updateAlignmentGuideLines(sc, snap.snappedX, snap.snappedZ, snap.alignedNodesX, snap.alignedNodesZ);
+
     const n = factoryLayout.nodes.find(item => item.id === node.id);
     if (n) {
-      n.x = pad.position.x;
-      n.z = pad.position.z;
+      n.x = snap.snappedX;
+      n.z = snap.snappedZ;
       updateEdgesForNode(sc, node.id);
+    }
+
+    // Real-time synchronization of directional arrows during dragging
+    if (nodeRotationWidgetRoot && selectedEditorNodeId.value === node.id) {
+      const widgetY = (isCargoNode(node.id) && node.has_cargo) ? 0.175 : 0.046;
+      nodeRotationWidgetRoot.position.set(snap.snappedX, widgetY, snap.snappedZ);
     }
   });
 
   dragBehavior.onDragEndObservable.add(() => {
     if (camera && canvasRef.value) camera.attachControl(canvasRef.value, true);
-    pad.position.y = 0.04;
-    const candidateX = Math.round(pad.position.x * 100) / 100;
-    const candidateZ = Math.round(pad.position.z * 100) / 100;
+    pad.position.y = (isCargoNode(node.id) && node.has_cargo) ? 0.16 : 0.04;
+    clearAlignmentGuideLines();
+    const snap = computeSmartSnap(pad.position.x, pad.position.z, node.id);
+    const candidateX = snap.snappedX;
+    const candidateZ = snap.snappedZ;
+    pad.position.x = candidateX;
+    pad.position.z = candidateZ;
 
     const collision = checkObjectClearanceCollision(candidateX, candidateZ, node.id, MIN_CLEARANCE_DIST);
     const n = factoryLayout.nodes.find(item => item.id === node.id);
@@ -2195,6 +3449,10 @@ function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
       pad.position.x = dragStartPos.x;
       pad.position.z = dragStartPos.z;
       updateEdgesForNode(sc, node.id);
+      if (nodeRotationWidgetRoot && selectedEditorNodeId.value === node.id) {
+        const widgetY = (isCargoNode(node.id) && node.has_cargo) ? 0.175 : 0.046;
+        nodeRotationWidgetRoot.position.set(dragStartPos.x, widgetY, dragStartPos.z);
+      }
       emit('notify', `⚠️ 物件重疊衝突：與 ${collision.conflictingWith} 間距過近 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，已自動復原至安全間距！`, 'warn');
     } else if (n) {
       n.x = candidateX;
@@ -2202,7 +3460,16 @@ function createNodeInScene(sc: BABYLON.Scene, node: LayoutNode) {
       pad.position.x = n.x;
       pad.position.z = n.z;
       updateEdgesForNode(sc, node.id);
+      if (nodeRotationWidgetRoot && selectedEditorNodeId.value === node.id) {
+        const widgetY = (isCargoNode(node.id) && node.has_cargo) ? 0.175 : 0.046;
+        nodeRotationWidgetRoot.position.set(n.x, widgetY, n.z);
+      }
       markLayoutDirty();
+      emit('notify', `已移動站點: ${node.name || node.id}`, 'info');
+    }
+
+    if (selectedEditorNodeId.value === node.id) {
+      createNodeRotationWidget(sc, pad, node.id);
     }
   });
 
@@ -2239,7 +3506,7 @@ function updateEdgesForNode(sc: BABYLON.Scene, nodeId: string) {
 
 
 
-// Item 3: Golden Proportions for Path Tube & Directional Arrows
+// Item 3: Golden Proportions for Path Tube & High-Visibility Directional Indicators
 function createEdgeInScene(sc: BABYLON.Scene, edge: LayoutEdge) {
   const start = factoryLayout.nodes.find(n => n.id === edge.startNodeId);
   const end = factoryLayout.nodes.find(n => n.id === edge.endNodeId);
@@ -2248,11 +3515,14 @@ function createEdgeInScene(sc: BABYLON.Scene, edge: LayoutEdge) {
   const startPos = new BABYLON.Vector3(start.x, 0.02, start.z);
   const endPos = new BABYLON.Vector3(end.x, 0.02, end.z);
   const points = [startPos, endPos];
+  const edgeDist = BABYLON.Vector3.Distance(startPos, endPos);
+  const isBidir = !!edge.bidirectional;
 
-  // 1. Path Tube: Slim, elegant factory floor track (diameter 0.07m, radius 0.035)
+  // 1. Path Tube:
+  // 雙向路徑使用略寬的軌道 (radius 0.045 = 9cm 寬)；單向路徑使用標準軌道 (radius 0.035)
   const tube = BABYLON.MeshBuilder.CreateTube(`Edge_${edge.id}`, {
     path: points,
-    radius: 0.035,
+    radius: isBidir ? 0.045 : 0.035,
     sideOrientation: BABYLON.Mesh.DOUBLESIDE
   }, sc);
   tube.metadata = { 
@@ -2260,7 +3530,7 @@ function createEdgeInScene(sc: BABYLON.Scene, edge: LayoutEdge) {
     id: edge.id, 
     startNodeId: edge.startNodeId, 
     endNodeId: edge.endNodeId,
-    bidirectional: !!edge.bidirectional
+    bidirectional: isBidir
   };
   tube.isPickable = true;
 
@@ -2268,68 +3538,102 @@ function createEdgeInScene(sc: BABYLON.Scene, edge: LayoutEdge) {
   tube.material = mat;
   edgeMeshesMap.set(edge.id, tube);
 
-  // 2. 3D Directional Arrows along edge (compact, proportional)
+  // 2. 3D Directional Arrows: 大箭頭 (0.35m 寬 x 0.48m 長)，單向/雙向色系鮮明對比！
   const arrows: BABYLON.AbstractMesh[] = [];
   const dx = end.x - start.x;
   const dz = end.z - start.z;
   const forwardTheta = Math.atan2(dx, dz);
 
   const arrowMat = new BABYLON.StandardMaterial(`ArrowMat_${edge.id}`, sc);
-  arrowMat.diffuseColor = new BABYLON.Color3(0.1, 0.8, 0.9);
-  arrowMat.emissiveColor = edge.bidirectional 
-    ? new BABYLON.Color3(0.1, 0.9, 0.6) 
-    : new BABYLON.Color3(0.1, 0.7, 0.9);
+  if (isBidir) {
+    // 雙向路徑標示：翡翠青綠 (Emerald Mint)，代表可自由對向會車/雙向行駛
+    arrowMat.diffuseColor = new BABYLON.Color3(0.0, 0.85, 0.70);
+    arrowMat.emissiveColor = new BABYLON.Color3(0.0, 0.96, 0.82);
+  } else {
+    // 單向路徑標示：琥珀橙黃 (Vibrant Amber)，強烈單向引導，杜絕逆向錯覺
+    arrowMat.diffuseColor = new BABYLON.Color3(0.95, 0.55, 0.05);
+    arrowMat.emissiveColor = new BABYLON.Color3(1.0, 0.65, 0.08);
+  }
 
-  if (edge.bidirectional) {
-    // Dual Opposing Arrows for Two-Way Path
-    const p1 = BABYLON.Vector3.Lerp(startPos, endPos, 0.38);
+  if (isBidir) {
+    // 雙向路徑：兩個相對方向的大箭頭 (0.35 與 0.65 位置)
+    const p1 = BABYLON.Vector3.Lerp(startPos, endPos, 0.35);
     const arrow1 = BABYLON.MeshBuilder.CreateCylinder(`Arr1_${edge.id}`, {
       diameterTop: 0,
-      diameterBottom: 0.14,
-      height: 0.20,
+      diameterBottom: 0.35,
+      height: 0.48,
       tessellation: 3
     }, sc);
-    arrow1.position.set(p1.x, 0.03, p1.z);
+    arrow1.position.set(p1.x, 0.045, p1.z);
     arrow1.rotation.x = Math.PI / 2;
     arrow1.rotation.y = forwardTheta;
     arrow1.material = arrowMat;
     arrow1.isPickable = false;
     arrows.push(arrow1);
 
-    const p2 = BABYLON.Vector3.Lerp(startPos, endPos, 0.62);
+    const p2 = BABYLON.Vector3.Lerp(startPos, endPos, 0.65);
     const arrow2 = BABYLON.MeshBuilder.CreateCylinder(`Arr2_${edge.id}`, {
       diameterTop: 0,
-      diameterBottom: 0.14,
-      height: 0.20,
+      diameterBottom: 0.35,
+      height: 0.48,
       tessellation: 3
     }, sc);
-    arrow2.position.set(p2.x, 0.03, p2.z);
+    arrow2.position.set(p2.x, 0.045, p2.z);
     arrow2.rotation.x = Math.PI / 2;
-    arrow2.rotation.y = forwardTheta + Math.PI; // Reverse direction
+    arrow2.rotation.y = forwardTheta + Math.PI; // 反向箭頭
     arrow2.material = arrowMat;
     arrow2.isPickable = false;
     arrows.push(arrow2);
   } else {
-    // Single Arrowhead for One-Way Path
-    const midPos = BABYLON.Vector3.Lerp(startPos, endPos, 0.5);
-    const arrow = BABYLON.MeshBuilder.CreateCylinder(`Arr_${edge.id}`, {
-      diameterTop: 0,
-      diameterBottom: 0.16,
-      height: 0.22,
-      tessellation: 3
-    }, sc);
-    arrow.position.set(midPos.x, 0.03, midPos.z);
-    arrow.rotation.x = Math.PI / 2;
-    arrow.rotation.y = forwardTheta;
-    arrow.material = arrowMat;
-    arrow.isPickable = false;
-    arrows.push(arrow);
+    // 單向路徑：長度大於 4.5m 放置雙重順行箭頭，短路段置中單箭頭
+    if (edgeDist > 4.5) {
+      const p1 = BABYLON.Vector3.Lerp(startPos, endPos, 0.35);
+      const arrow1 = BABYLON.MeshBuilder.CreateCylinder(`Arr1_${edge.id}`, {
+        diameterTop: 0,
+        diameterBottom: 0.35,
+        height: 0.48,
+        tessellation: 3
+      }, sc);
+      arrow1.position.set(p1.x, 0.045, p1.z);
+      arrow1.rotation.x = Math.PI / 2;
+      arrow1.rotation.y = forwardTheta;
+      arrow1.material = arrowMat;
+      arrow1.isPickable = false;
+      arrows.push(arrow1);
+
+      const p2 = BABYLON.Vector3.Lerp(startPos, endPos, 0.65);
+      const arrow2 = BABYLON.MeshBuilder.CreateCylinder(`Arr2_${edge.id}`, {
+        diameterTop: 0,
+        diameterBottom: 0.35,
+        height: 0.48,
+        tessellation: 3
+      }, sc);
+      arrow2.position.set(p2.x, 0.045, p2.z);
+      arrow2.rotation.x = Math.PI / 2;
+      arrow2.rotation.y = forwardTheta;
+      arrow2.material = arrowMat;
+      arrow2.isPickable = false;
+      arrows.push(arrow2);
+    } else {
+      const midPos = BABYLON.Vector3.Lerp(startPos, endPos, 0.5);
+      const arrow = BABYLON.MeshBuilder.CreateCylinder(`Arr_${edge.id}`, {
+        diameterTop: 0,
+        diameterBottom: 0.35,
+        height: 0.48,
+        tessellation: 3
+      }, sc);
+      arrow.position.set(midPos.x, 0.045, midPos.z);
+      arrow.rotation.x = Math.PI / 2;
+      arrow.rotation.y = forwardTheta;
+      arrow.material = arrowMat;
+      arrow.isPickable = false;
+      arrows.push(arrow);
+    }
   }
 
   edgeArrowMeshesMap.set(edge.id, arrows);
 }
 
-// 3.1 Dynamic Path Material Rendering: VDA 5050 Base (solid) vs Horizon (dim translucent) vs Passed
 // 3.1 Dynamic Path Material Rendering: VDA 5050 Base (solid) vs Horizon (dim translucent) vs Passed
 function updateDynamicPathMaterials() {
   const selVeh = fleetVehicles[selectedVehicleId.value] || agvState;
@@ -2374,6 +3678,8 @@ function updateDynamicPathMaterials() {
 
     const arrows = edgeArrowMeshesMap.get(edgeId);
     if (arrows) {
+      const edgeObj = factoryLayout.edges.find(e => e.id === edgeId);
+      const isBidir = edgeObj ? !!edgeObj.bidirectional : false;
       arrows.forEach(a => {
         const aMat = a.material as BABYLON.StandardMaterial;
         if (!aMat) return;
@@ -2384,8 +3690,16 @@ function updateDynamicPathMaterials() {
           aMat.emissiveColor = new BABYLON.Color3(0.05, 0.55, 0.75);
           aMat.alpha = 0.85;
         } else {
-          aMat.emissiveColor = new BABYLON.Color3(0.15, 0.55, 0.75);
-          aMat.alpha = 0.65;
+          // Distinct One-Way vs Two-Way idle coloring:
+          if (isBidir) {
+            aMat.diffuseColor = new BABYLON.Color3(0.0, 0.85, 0.70);
+            aMat.emissiveColor = new BABYLON.Color3(0.0, 0.96, 0.82);
+            aMat.alpha = 0.95;
+          } else {
+            aMat.diffuseColor = new BABYLON.Color3(0.95, 0.55, 0.05);
+            aMat.emissiveColor = new BABYLON.Color3(1.0, 0.65, 0.08);
+            aMat.alpha = 0.95;
+          }
         }
       });
     }
@@ -2756,7 +4070,7 @@ function setupInteractivePointerEvents(sc: BABYLON.Scene) {
             if (visual.haloMesh) visual.haloMesh.isVisible = (vId === id);
           }
           updateQuickDispatchPreviewLine(sc);
-          emit('notify', `已鎖定車輛 ${selectedVehicleId.value}，鏡頭自動平滑跟隨！`, 'info');
+          emit('notify', `已鎖定車輛 ${selectedVehicleId.value}`, 'info');
           return;
         }
 
@@ -2786,6 +4100,8 @@ function setupInteractivePointerEvents(sc: BABYLON.Scene) {
       handlePointerMoveInEditMode(sc, pointerInfo);
     } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
       handlePointerDownInEditMode(sc, pointerInfo);
+    } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERUP) {
+      handlePointerUpInEditMode(sc, pointerInfo);
     }
   });
 }
@@ -2876,59 +4192,463 @@ function triggerNodeTargetRipple(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMe
   }, 600);
 }
 
+// ----------------------------------------------------
+// High-Fidelity 3D Edge Preview System
+// ----------------------------------------------------
+function disposeEdgePreviewMeshes(includeStartRing = true) {
+  if (previewEdgeTube) {
+    if (previewEdgeTube.material) previewEdgeTube.material.dispose();
+    previewEdgeTube.dispose();
+    previewEdgeTube = null;
+  }
+  if (rubberBandLine) {
+    rubberBandLine.dispose();
+    rubberBandLine = null;
+  }
+  previewEdgeArrows.forEach(a => {
+    if (a.material) a.material.dispose();
+    a.dispose();
+  });
+  previewEdgeArrows = [];
+  if (previewTargetSnapRing) {
+    if (previewTargetSnapRing.material) previewTargetSnapRing.material.dispose();
+    previewTargetSnapRing.dispose();
+    previewTargetSnapRing = null;
+  }
+  if (previewEndpointReticle) {
+    if (previewEndpointReticle.material) previewEndpointReticle.material.dispose();
+    previewEndpointReticle.dispose();
+    previewEndpointReticle = null;
+  }
+  if (previewEdgeBadge) {
+    const mat = previewEdgeBadge.material as BABYLON.StandardMaterial | null;
+    if (mat) {
+      if (mat.diffuseTexture) mat.diffuseTexture.dispose();
+      mat.dispose();
+    }
+    previewEdgeBadge.dispose();
+    previewEdgeBadge = null;
+  }
+  if (previewHoverStartRing) {
+    if (previewHoverStartRing.material) previewHoverStartRing.material.dispose();
+    previewHoverStartRing.dispose();
+    previewHoverStartRing = null;
+  }
+  if (includeStartRing) {
+    clearNodeSelection();
+  }
+}
+
+function updateEdgeCreationPreview(
+  sc: BABYLON.Scene,
+  startPoint: BABYLON.Vector3,
+  endPoint: BABYLON.Vector3,
+  isSnapped: boolean,
+  targetNodeId: string | null
+) {
+  const dist = BABYLON.Vector3.Distance(startPoint, endPoint);
+  if (dist < 0.08) {
+    disposeEdgePreviewMeshes(false);
+    return;
+  }
+
+  const dx = endPoint.x - startPoint.x;
+  const dz = endPoint.z - startPoint.z;
+  const forwardTheta = Math.atan2(dx, dz);
+  const midPoint = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.5);
+  midPoint.y = 0.05;
+
+  const isBidir = (edgeDirectionMode.value === 'bidirectional');
+
+  // Palette: Snapped is Emerald Green (#10b981), Floating is Electric Cyan / Amber
+  const previewColor = isSnapped
+    ? new BABYLON.Color3(0.06, 0.95, 0.55)
+    : (isBidir ? new BABYLON.Color3(0.06, 0.85, 1.0) : new BABYLON.Color3(0.98, 0.65, 0.08));
+
+  // 1. 3D Volumetric Path Tube
+  if (previewEdgeTube) {
+    previewEdgeTube.dispose();
+    previewEdgeTube = null;
+  }
+  previewEdgeTube = BABYLON.MeshBuilder.CreateTube('PreviewEdgeTube', {
+    path: [startPoint, endPoint],
+    radius: 0.038,
+    sideOrientation: BABYLON.Mesh.DOUBLESIDE
+  }, sc);
+  previewEdgeTube.isPickable = false;
+
+  const tubeMat = new BABYLON.StandardMaterial('PreviewEdgeTubeMat', sc);
+  tubeMat.diffuseColor = previewColor;
+  tubeMat.emissiveColor = previewColor.scale(0.85);
+  tubeMat.alpha = 0.88;
+  previewEdgeTube.material = tubeMat;
+
+  // 2. High-contrast Dashed Line Core
+  if (rubberBandLine) {
+    rubberBandLine.dispose();
+    rubberBandLine = null;
+  }
+  rubberBandLine = BABYLON.MeshBuilder.CreateDashedLines('RubberBandPreview', {
+    points: [
+      new BABYLON.Vector3(startPoint.x, 0.065, startPoint.z),
+      new BABYLON.Vector3(endPoint.x, 0.065, endPoint.z)
+    ],
+    dashSize: 0.35,
+    gapSize: 0.20,
+    dashNb: Math.max(6, Math.floor(dist * 3))
+  }, sc);
+  rubberBandLine.color = new BABYLON.Color3(1, 1, 1);
+  rubberBandLine.isPickable = false;
+
+  // 3. Directional Arrows
+  previewEdgeArrows.forEach(a => {
+    if (a.material) a.material.dispose();
+    a.dispose();
+  });
+  previewEdgeArrows = [];
+
+  const arrowMat = new BABYLON.StandardMaterial('PreviewArrowMat', sc);
+  if (isBidir) {
+    arrowMat.diffuseColor = new BABYLON.Color3(0.0, 0.85, 0.70);
+    arrowMat.emissiveColor = new BABYLON.Color3(0.0, 0.96, 0.82);
+  } else {
+    arrowMat.diffuseColor = new BABYLON.Color3(0.95, 0.55, 0.05);
+    arrowMat.emissiveColor = new BABYLON.Color3(1.0, 0.65, 0.08);
+  }
+  arrowMat.alpha = 0.95;
+
+  if (isBidir) {
+    const p1 = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.38);
+    const arrow1 = BABYLON.MeshBuilder.CreateCylinder('PreviewArr1', {
+      diameterTop: 0,
+      diameterBottom: 0.35,
+      height: 0.48,
+      tessellation: 3
+    }, sc);
+    arrow1.position.set(p1.x, 0.06, p1.z);
+    arrow1.rotation.x = Math.PI / 2;
+    arrow1.rotation.y = forwardTheta;
+    arrow1.material = arrowMat;
+    arrow1.isPickable = false;
+    previewEdgeArrows.push(arrow1);
+
+    const p2 = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.62);
+    const arrow2 = BABYLON.MeshBuilder.CreateCylinder('PreviewArr2', {
+      diameterTop: 0,
+      diameterBottom: 0.35,
+      height: 0.48,
+      tessellation: 3
+    }, sc);
+    arrow2.position.set(p2.x, 0.06, p2.z);
+    arrow2.rotation.x = Math.PI / 2;
+    arrow2.rotation.y = forwardTheta + Math.PI;
+    arrow2.material = arrowMat;
+    arrow2.isPickable = false;
+    previewEdgeArrows.push(arrow2);
+  } else {
+    const pMid = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.50);
+    const arrow = BABYLON.MeshBuilder.CreateCylinder('PreviewArr', {
+      diameterTop: 0,
+      diameterBottom: 0.35,
+      height: 0.48,
+      tessellation: 3
+    }, sc);
+    arrow.position.set(pMid.x, 0.06, pMid.z);
+    arrow.rotation.x = Math.PI / 2;
+    arrow.rotation.y = forwardTheta;
+    arrow.material = arrowMat;
+    arrow.isPickable = false;
+    previewEdgeArrows.push(arrow);
+  }
+
+  // 4. Snapped Target Node Halo vs Floating Endpoint Reticle
+  if (isSnapped && targetNodeId) {
+    if (previewEndpointReticle) {
+      previewEndpointReticle.dispose();
+      previewEndpointReticle = null;
+    }
+    if (!previewTargetSnapRing) {
+      previewTargetSnapRing = BABYLON.MeshBuilder.CreateTorus('PreviewTargetSnapRing', {
+        diameter: 0.95,
+        thickness: 0.035,
+        tessellation: 32
+      }, sc);
+      const snapMat = new BABYLON.StandardMaterial('TargetSnapMat', sc);
+      snapMat.diffuseColor = new BABYLON.Color3(0.06, 0.95, 0.55);
+      snapMat.emissiveColor = new BABYLON.Color3(0.2, 1.0, 0.6);
+      previewTargetSnapRing.material = snapMat;
+      previewTargetSnapRing.isPickable = false;
+    }
+    previewTargetSnapRing.position.set(endPoint.x, 0.045, endPoint.z);
+    previewTargetSnapRing.setEnabled(true);
+  } else {
+    if (previewTargetSnapRing) {
+      previewTargetSnapRing.dispose();
+      previewTargetSnapRing = null;
+    }
+    if (!previewEndpointReticle) {
+      previewEndpointReticle = BABYLON.MeshBuilder.CreateDisc('PreviewEndpointReticle', {
+        radius: 0.20,
+        tessellation: 24
+      }, sc);
+      previewEndpointReticle.rotation.x = Math.PI / 2;
+      const reticleMat = new BABYLON.StandardMaterial('ReticleMat', sc);
+      reticleMat.diffuseColor = previewColor;
+      reticleMat.emissiveColor = previewColor;
+      reticleMat.alpha = 0.65;
+      previewEndpointReticle.material = reticleMat;
+      previewEndpointReticle.isPickable = false;
+    }
+    previewEndpointReticle.position.set(endPoint.x, 0.045, endPoint.z);
+    previewEndpointReticle.setEnabled(true);
+  }
+
+  // Remove redundant floating distance badge on path as requested
+  if (previewEdgeBadge) {
+    previewEdgeBadge.dispose();
+    previewEdgeBadge = null;
+  }
+}
+
+function completeEdgeConnection(sc: BABYLON.Scene, startId: string, endId: string) {
+  cancelEdgeConnection();
+
+  const isBidir = (edgeDirectionMode.value === 'bidirectional');
+
+  // Check if edge already exists between these two nodes in EITHER direction
+  const existingIdx = factoryLayout.edges.findIndex(e => 
+    (e.startNodeId === startId && e.endNodeId === endId) ||
+    (e.startNodeId === endId && e.endNodeId === startId)
+  );
+
+  if (existingIdx >= 0) {
+    const existingEdge = factoryLayout.edges[existingIdx];
+    
+    const oldMesh = edgeMeshesMap.get(existingEdge.id);
+    if (oldMesh) {
+      oldMesh.dispose();
+      edgeMeshesMap.delete(existingEdge.id);
+    }
+    const oldArrows = edgeArrowMeshesMap.get(existingEdge.id);
+    if (oldArrows) {
+      oldArrows.forEach(a => a.dispose());
+      edgeArrowMeshesMap.delete(existingEdge.id);
+    }
+
+    existingEdge.startNodeId = startId;
+    existingEdge.endNodeId = endId;
+    existingEdge.bidirectional = isBidir;
+
+    createEdgeInScene(sc, existingEdge);
+    updateDynamicPathMaterials();
+    markLayoutDirty();
+    emit('notify', `已更新路徑: ${startId} ${isBidir ? '⇄' : '➔'} ${endId} (${isBidir ? '雙向' : '單向'})`, 'success');
+  } else {
+    const edgeId = `Edge-${startId.replace('Node-', '')}-${endId.replace('Node-', '')}`;
+    const newEdge: LayoutEdge = {
+      id: edgeId,
+      startNodeId: startId,
+      endNodeId: endId,
+      bidirectional: isBidir
+    };
+    factoryLayout.edges.push(newEdge);
+    createEdgeInScene(sc, newEdge);
+    updateDynamicPathMaterials();
+    markLayoutDirty();
+    emit('notify', `已建立路徑: ${startId} ${isBidir ? '⇄' : '➔'} ${endId} (${isBidir ? '雙向' : '單向'})`, 'success');
+  }
+}
+
+function handlePointerUpInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
+  const tool = currentEditorTool.value;
+  if (tool === 'add_edge' && edgeFirstNodeId.value) {
+    const targetId = hoveredNodeId.value || resolvePickedNodeFromPointer(sc, pointerInfo.pickInfo);
+    if (targetId && targetId !== edgeFirstNodeId.value) {
+      completeEdgeConnection(sc, edgeFirstNodeId.value, targetId);
+    }
+  }
+}
+
 function handlePointerMoveInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
-  if (currentEditorTool.value !== 'add_edge' || !edgeFirstNodeId.value) {
+  const tool = currentEditorTool.value;
+
+  if (tool === 'add_node') {
     if (rubberBandLine) {
       rubberBandLine.dispose();
       rubberBandLine = null;
     }
     hoveredNodeId.value = null;
+    updateGhostPadVisual(sc, newNodeFunction.value);
+
+    // Compute exact ground intersection using camera picking ray
+    const ray = sc.createPickingRay(sc.pointerX, sc.pointerY, BABYLON.Matrix.Identity(), camera || sc.activeCamera);
+    let floorPoint: BABYLON.Vector3 | null = null;
+    if (ray && Math.abs(ray.direction.y) > 0.0001) {
+      const t = (0.04 - ray.origin.y) / ray.direction.y;
+      if (t > 0) {
+        floorPoint = ray.origin.add(ray.direction.scale(t));
+      }
+    }
+
+    if (floorPoint && ghostPlacementPad) {
+      const snap = computeSmartSnap(floorPoint.x, floorPoint.z);
+      ghostPlacementPad.position.set(snap.snappedX, 0.045, snap.snappedZ);
+      ghostPlacementPad.setEnabled(true);
+      sc.defaultCursor = 'crosshair';
+    } else {
+      hideGhostPlacementPad();
+    }
     return;
   }
 
-  const startNode = factoryLayout.nodes.find(n => n.id === edgeFirstNodeId.value);
-  if (!startNode) return;
+  // Hide ghost pad if not in add_node mode
+  hideGhostPlacementPad();
 
-  const pickResult = pointerInfo.pickInfo;
-  if (!pickResult || !pickResult.hit) return;
-
-  const startPoint = new BABYLON.Vector3(startNode.x, 0.04, startNode.z);
-  let endPoint = pickResult.pickedPoint || startPoint;
-
-  // Check if hovering over another node (using multi-layer resolver so vehicles don't block)
-  const targetId = resolvePickedNodeFromPointer(sc, pickResult);
-  if (targetId && targetId !== edgeFirstNodeId.value) {
-    const targetNode = factoryLayout.nodes.find(n => n.id === targetId);
-    if (targetNode) {
-      endPoint = new BABYLON.Vector3(targetNode.x, 0.04, targetNode.z);
-      hoveredNodeId.value = targetId;
+  if (tool === 'select') {
+    const pickedMesh = pointerInfo.pickInfo?.pickedMesh;
+    const isRotateMesh = (
+      pickedMesh?.metadata?.type === 'rotate_action' ||
+      pickedMesh?.metadata?.type === 'rotate_handle' ||
+      pickedMesh?.name?.startsWith('BtnDir_') ||
+      pickedMesh?.name?.startsWith('BtnTurn_')
+    );
+    if (isRotateMesh) {
       sc.defaultCursor = 'pointer';
+      return;
     }
-  } else {
-    hoveredNodeId.value = null;
-    sc.defaultCursor = 'crosshair';
   }
 
-  // Create or update dynamic rubber-band line
-  if (rubberBandLine) {
-    rubberBandLine.dispose();
+  if (tool === 'add_edge' && !edgeFirstNodeId.value) {
+    disposeEdgePreviewMeshes(false);
+    
+    // Check if hovering over any node to highlight as candidate start
+    const hoverNodeId = resolvePickedNodeFromPointer(sc, pointerInfo.pickInfo);
+    if (hoverNodeId) {
+      const node = factoryLayout.nodes.find(n => n.id === hoverNodeId);
+      if (node) {
+        sc.defaultCursor = 'pointer';
+        if (!previewHoverStartRing) {
+          previewHoverStartRing = BABYLON.MeshBuilder.CreateTorus('PreviewHoverStartRing', {
+            diameter: 0.88,
+            thickness: 0.025,
+            tessellation: 32
+          }, sc);
+          const mat = new BABYLON.StandardMaterial('HoverStartMat', sc);
+          mat.diffuseColor = new BABYLON.Color3(0.06, 0.75, 1.0);
+          mat.emissiveColor = new BABYLON.Color3(0.06, 0.85, 1.0);
+          previewHoverStartRing.material = mat;
+          previewHoverStartRing.isPickable = false;
+        }
+        previewHoverStartRing.position.set(node.x, 0.045, node.z);
+        previewHoverStartRing.setEnabled(true);
+        return;
+      }
+    }
+    if (previewHoverStartRing) {
+      previewHoverStartRing.setEnabled(false);
+    }
+    sc.defaultCursor = 'crosshair';
+    return;
   }
-  rubberBandLine = BABYLON.MeshBuilder.CreateLines('RubberBandPreview', {
-    points: [startPoint, endPoint]
-  }, sc);
-  rubberBandLine.color = new BABYLON.Color3(0.96, 0.62, 0.04); // Glowing Amber
-  rubberBandLine.isPickable = false;
+
+  if (tool === 'add_edge' && edgeFirstNodeId.value) {
+    if (previewHoverStartRing) {
+      previewHoverStartRing.setEnabled(false);
+    }
+    const startNode = factoryLayout.nodes.find(n => n.id === edgeFirstNodeId.value);
+    if (!startNode) return;
+
+    // Robust raycast onto ground plane y = 0.05
+    const ray = sc.createPickingRay(sc.pointerX, sc.pointerY, BABYLON.Matrix.Identity(), camera || sc.activeCamera);
+    let groundPoint: BABYLON.Vector3 | null = null;
+    if (ray && Math.abs(ray.direction.y) > 0.0001) {
+      const t = (0.05 - ray.origin.y) / ray.direction.y;
+      if (t > 0) {
+        groundPoint = ray.origin.add(ray.direction.scale(t));
+      }
+    }
+    if (!groundPoint && pointerInfo.pickInfo?.pickedPoint) {
+      groundPoint = pointerInfo.pickInfo.pickedPoint.clone();
+      groundPoint.y = 0.05;
+    }
+    if (!groundPoint) return;
+
+    // Check target node: direct pointer pick or magnetic snapping within 1.25m
+    let targetId = resolvePickedNodeFromPointer(sc, pointerInfo.pickInfo);
+    if (targetId === edgeFirstNodeId.value) {
+      targetId = null;
+    }
+
+    if (!targetId && groundPoint) {
+      let closestDist = 1.25;
+      for (const node of factoryLayout.nodes) {
+        if (node.id === edgeFirstNodeId.value) continue;
+        const d = Math.hypot(node.x - groundPoint.x, node.z - groundPoint.z);
+        if (d < closestDist) {
+          closestDist = d;
+          targetId = node.id;
+        }
+      }
+    }
+
+    const startPoint = new BABYLON.Vector3(startNode.x, 0.05, startNode.z);
+    let endPoint: BABYLON.Vector3;
+    let isSnapped = false;
+
+    if (targetId) {
+      const targetNode = factoryLayout.nodes.find(n => n.id === targetId);
+      if (targetNode) {
+        endPoint = new BABYLON.Vector3(targetNode.x, 0.05, targetNode.z);
+        hoveredNodeId.value = targetId;
+        sc.defaultCursor = 'pointer';
+        isSnapped = true;
+      } else {
+        endPoint = groundPoint;
+        hoveredNodeId.value = null;
+        sc.defaultCursor = 'crosshair';
+      }
+    } else {
+      endPoint = groundPoint;
+      hoveredNodeId.value = null;
+      sc.defaultCursor = 'crosshair';
+    }
+
+    updateEdgeCreationPreview(sc, startPoint, endPoint, isSnapped, targetId);
+    return;
+  }
+
+  // Not in add_edge tool
+  disposeEdgePreviewMeshes(false);
 }
 
 function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
-  const pickResult = pointerInfo.pickInfo;
-  if (!pickResult || !pickResult.hit) return;
-
-  const pickedMesh = pickResult.pickedMesh;
   const tool = currentEditorTool.value;
+  const pickResult = pointerInfo.pickInfo;
+  const pickedMesh = pickResult?.pickedMesh;
 
   if (tool === 'select') {
-    // Select is purely for moving nodes or props with gizmo/drag!
+    if (!pickResult || !pickResult.hit) return;
+
+    // Check if clicked directly on 3D rotation action buttons (上下左右 / 左轉右轉)
+    const isRotateAction = (
+      pickedMesh?.metadata?.type === 'rotate_action' ||
+      pickedMesh?.metadata?.type === 'rotate_handle' ||
+      pickedMesh?.name?.startsWith('BtnDir_') ||
+      pickedMesh?.name?.startsWith('BtnTurn_')
+    );
+    if (isRotateAction) {
+      const meta = pickedMesh?.metadata;
+      const targetId = meta?.id || selectedEditorNodeId.value;
+      if (targetId) {
+        if (meta?.action === 'set') {
+          setNodeHeading(targetId, meta.deg);
+        } else {
+          rotateNode(targetId, meta?.deg || 90);
+        }
+      }
+      return;
+    }
+
     const pickedNodeId = resolvePickedNodeFromPointer(sc, pickResult);
     if (pickedNodeId) {
       selectedEditorNodeId.value = pickedNodeId;
@@ -2950,10 +4670,20 @@ function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.Poi
       clearNodeSelection();
     }
   } else if (tool === 'add_node') {
-    const point = pickResult.pickedPoint;
+    let point = pickResult?.pickedPoint;
+    if (!point) {
+      const ray = sc.createPickingRay(sc.pointerX, sc.pointerY, BABYLON.Matrix.Identity(), camera || sc.activeCamera);
+      if (ray && Math.abs(ray.direction.y) > 0.0001) {
+        const t = (0.04 - ray.origin.y) / ray.direction.y;
+        if (t > 0) {
+          point = ray.origin.add(ray.direction.scale(t));
+        }
+      }
+    }
     if (point) {
-      const targetX = Math.round(point.x * 10) / 10;
-      const targetZ = Math.round(point.z * 10) / 10;
+      const snap = computeSmartSnap(point.x, point.z);
+      const targetX = snap.snappedX;
+      const targetZ = snap.snappedZ;
       const collision = checkObjectClearanceCollision(targetX, targetZ, undefined, MIN_CLEARANCE_DIST);
       if (collision.hasCollision) {
         emit('notify', `⚠️ 無法在此放置站點：與 ${collision.conflictingWith} 重疊 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，請保持安全間距！`, 'warn');
@@ -2986,6 +4716,8 @@ function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.Poi
       factoryLayout.nodes.push(newNode);
       createNodeInScene(sc, newNode);
 
+      hideGhostPlacementPad();
+      clearAlignmentGuideLines();
       markLayoutDirty();
       emit('notify', `已新增 ${typeLabel}: ${newId}`, 'success');
     }
@@ -2999,59 +4731,12 @@ function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.Poi
         edgeFirstNodeId.value = nodeId;
         const nodeMesh = nodeMeshesMap.get(nodeId) || pickedMesh;
         if (nodeMesh) highlightStartNode(sc, nodeMesh);
-        emit('notify', `已選取起點: ${nodeId}，請游標拉線點選目標節點`, 'info');
+        emit('notify', `已選取起點: ${nodeId}，請拖曳預覽線並點擊目標節點`, 'info');
       } else if (edgeFirstNodeId.value === nodeId) {
         emit('notify', '起點與終點不能為同一節點', 'warn');
       } else {
         // Step 2: Connect to end node
-        const startId = edgeFirstNodeId.value;
-        const endId = nodeId;
-        cancelEdgeConnection();
-
-        const isBidir = (edgeDirectionMode.value === 'bidirectional');
-
-        // Check if edge already exists between these two nodes in EITHER direction
-        const existingIdx = factoryLayout.edges.findIndex(e => 
-          (e.startNodeId === startId && e.endNodeId === endId) ||
-          (e.startNodeId === endId && e.endNodeId === startId)
-        );
-
-        if (existingIdx >= 0) {
-          const existingEdge = factoryLayout.edges[existingIdx];
-          
-          const oldMesh = edgeMeshesMap.get(existingEdge.id);
-          if (oldMesh) {
-            oldMesh.dispose();
-            edgeMeshesMap.delete(existingEdge.id);
-          }
-          const oldArrows = edgeArrowMeshesMap.get(existingEdge.id);
-          if (oldArrows) {
-            oldArrows.forEach(a => a.dispose());
-            edgeArrowMeshesMap.delete(existingEdge.id);
-          }
-
-          existingEdge.startNodeId = startId;
-          existingEdge.endNodeId = endId;
-          existingEdge.bidirectional = isBidir;
-
-          createEdgeInScene(sc, existingEdge);
-          updateDynamicPathMaterials();
-          markLayoutDirty();
-          emit('notify', `已更新路徑: ${startId} ${isBidir ? '⇄' : '➔'} ${endId} (${isBidir ? '雙向' : '單向'})`, 'success');
-        } else {
-          const edgeId = `Edge-${startId.replace('Node-', '')}-${endId.replace('Node-', '')}`;
-          const newEdge: LayoutEdge = {
-            id: edgeId,
-            startNodeId: startId,
-            endNodeId: endId,
-            bidirectional: isBidir
-          };
-          factoryLayout.edges.push(newEdge);
-          createEdgeInScene(sc, newEdge);
-          updateDynamicPathMaterials();
-          markLayoutDirty();
-          emit('notify', `已建立路徑: ${startId} ${isBidir ? '⇄' : '➔'} ${endId} (${isBidir ? '雙向' : '單向'})`, 'success');
-        }
+        completeEdgeConnection(sc, edgeFirstNodeId.value, nodeId);
       }
     } else {
       cancelEdgeConnection();
@@ -3085,6 +4770,7 @@ function deleteNodeById(nodeId: string) {
   if (padMesh) {
     padMesh.dispose();
     nodeMeshesMap.delete(nodeId);
+    nodeTextureMap.delete(nodeId);
   }
   const pallet = stationPalletMap.get(nodeId);
   if (pallet) {
@@ -3140,20 +4826,8 @@ function highlightSelectedNode(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh
   if (nodeId) {
     selectedEditorNodeId.value = nodeId;
     selectedEditorPropId.value = null;
+    createNodeRotationWidget(sc, nodeMesh, nodeId);
   }
-  nodeSelectionRing = BABYLON.MeshBuilder.CreateTorus('SelectedNodeTorus', { 
-    diameter: 0.85, 
-    thickness: 0.025, 
-    tessellation: 32 
-  }, sc);
-  nodeSelectionRing.parent = nodeMesh;
-  nodeSelectionRing.position.set(0, 0.01, 0);
-
-  const mat = new BABYLON.StandardMaterial('SelMat', sc);
-  mat.diffuseColor = new BABYLON.Color3(0.06, 0.75, 1.0);
-  mat.emissiveColor = new BABYLON.Color3(0.2, 0.85, 1.0);
-  nodeSelectionRing.material = mat;
-  nodeSelectionRing.isPickable = false;
 }
 
 function highlightStartNode(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
@@ -3172,6 +4846,7 @@ function highlightStartNode(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
 }
 
 function clearNodeSelection() {
+  clearNodeRotationWidget();
   if (nodeSelectionRing) {
     nodeSelectionRing.dispose();
     nodeSelectionRing = null;
@@ -3182,11 +4857,7 @@ function clearNodeSelection() {
 function cancelEdgeConnection() {
   edgeFirstNodeId.value = null;
   hoveredNodeId.value = null;
-  if (rubberBandLine) {
-    rubberBandLine.dispose();
-    rubberBandLine = null;
-  }
-  clearNodeSelection();
+  disposeEdgePreviewMeshes(true);
 }
 
 // ----------------------------------------------------
@@ -3285,9 +4956,9 @@ function clearCanvasEntirely() {
 }
 
 async function handleCancelEdit() {
-  await fetchLayout();
-  if (scene) rebuildLayoutInScene(scene);
   clearLayoutDirty();
+  await fetchLayout(true);
+  if (scene) rebuildLayoutInScene(scene);
   currentAppMode.value = 'simulate';
   currentEditorTool.value = 'select';
   attachGizmoToTarget(null);
@@ -3392,6 +5063,8 @@ function addOrSelectNodeFromMap(nodeId: string) {
     step.node_id = nodeId;
     if (step.action === 'charge' && !isChargingNode(nodeId)) {
       step.action = 'none';
+    } else if ((step.action === 'pick' || step.action === 'drop') && !isCargoNode(nodeId)) {
+      step.action = 'none';
     }
   } else {
     const lastStep = quickDispatchSteps.value[quickDispatchSteps.value.length - 1];
@@ -3452,7 +5125,12 @@ function handleQuickDispatchLaunch() {
     return;
   }
 
-  // Real-world validation: Check charging station and cargo pick/drop rules
+  if (quickDispatchSteps.value.length === 1 && quickDispatchSteps.value[0].node_id === currentAgvStartNode.value) {
+    emit('notify', `車輛目前已在站點 ${currentAgvStartNode.value}，請選擇其他目標站點！`, 'warn');
+    return;
+  }
+
+  // Real-world validation: Check charging station and cargo pick/drop rules (auto-sanitize to pure travel)
   const currentVeh = fleetVehicles[selectedVehicleId.value] || (selectedVehicleId.value === agvState.agv_id ? agvState : null);
   let simulatedAgvHasCargo = !!currentVeh?.task_info?.has_cargo;
 
@@ -3461,32 +5139,31 @@ function handleQuickDispatchLaunch() {
     const nodeObj = factoryLayout.nodes.find(n => n.id === s.node_id);
 
     if (s.action === 'charge' && !isChargingNode(s.node_id)) {
-      emit('notify', `第 ${i + 1} 站 (${s.node_id}) 非充電樁，無法指派充電任務！`, 'warn');
-      return;
-    }
-
-    if (s.action === 'pick') {
+      s.action = 'none';
+      emit('notify', `第 ${i + 1} 站 (${s.node_id}) 非充電樁，已自動變更為純移動`, 'info');
+    } else if ((s.action === 'pick' || s.action === 'drop') && !isCargoNode(s.node_id)) {
+      s.action = 'none';
+      emit('notify', `第 ${i + 1} 站 (${s.node_id}) 非貨物站，已自動變更為純移動`, 'info');
+    } else if (s.action === 'pick') {
       if (simulatedAgvHasCargo) {
-        emit('notify', `⚠️ 車輛 ${selectedVehicleId.value} 在第 ${i + 1} 站 (${s.node_id}) 已有載貨，不可再次取貨！`, 'warn');
-        return;
+        s.action = 'none';
+        emit('notify', `⚠️ 車輛 ${selectedVehicleId.value} 已載貨，第 ${i + 1} 站自動轉為純移動`, 'info');
+      } else if (nodeObj && !nodeObj.has_cargo) {
+        s.action = 'none';
+        emit('notify', `⚠️ 第 ${i + 1} 站 (${s.node_id}) 棧板無貨物，已轉為純移動`, 'info');
+      } else {
+        simulatedAgvHasCargo = true;
       }
-      if (nodeObj && !nodeObj.has_cargo) {
-        emit('notify', `⚠️ 第 ${i + 1} 站 (${s.node_id}) 棧板目前為空無貨物，不可取貨！`, 'warn');
-        return;
-      }
-      simulatedAgvHasCargo = true;
-    }
-
-    if (s.action === 'drop') {
+    } else if (s.action === 'drop') {
       if (!simulatedAgvHasCargo) {
-        emit('notify', `⚠️ 車輛 ${selectedVehicleId.value} 在第 ${i + 1} 站 (${s.node_id}) 目前空載，無貨物可放！`, 'warn');
-        return;
+        s.action = 'none';
+        emit('notify', `⚠️ 車輛 ${selectedVehicleId.value} 目前空載，第 ${i + 1} 站自動轉為純移動`, 'info');
+      } else if (nodeObj && nodeObj.has_cargo) {
+        s.action = 'none';
+        emit('notify', `⚠️ 第 ${i + 1} 站 (${s.node_id}) 棧板已有貨，已轉為純移動`, 'info');
+      } else {
+        simulatedAgvHasCargo = false;
       }
-      if (nodeObj && nodeObj.has_cargo) {
-        emit('notify', `⚠️ 第 ${i + 1} 站 (${s.node_id}) 棧板上已有貨物，不可重複放貨！`, 'warn');
-        return;
-      }
-      simulatedAgvHasCargo = false;
     }
   }
 
@@ -4579,6 +6256,101 @@ defineExpose({
   background: rgba(255, 255, 255, 0.1);
 }
 
+.mission-header-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mission-panel-min-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.mission-panel-min-btn:hover {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+}
+
+/* Minimized Task Capsule (Allows full map visibility without clutter) */
+.mission-minimized-capsule {
+  position: absolute;
+  top: 72px;
+  left: 20px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 24px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  z-index: 40;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(56, 189, 248, 0.2);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.mission-minimized-capsule:hover {
+  background: rgba(30, 41, 59, 0.98);
+  border-color: #38bdf8;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6), 0 0 22px rgba(56, 189, 248, 0.35);
+}
+
+.capsule-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 10px #38bdf8;
+  animation: pulse-capsule 1.8s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-capsule {
+  0%, 100% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.25); opacity: 1; }
+}
+
+.capsule-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.capsule-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.capsule-route {
+  font-size: 10.5px;
+  color: #38bdf8;
+  font-family: monospace;
+}
+
+.capsule-chevron {
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.mission-minimized-capsule:hover .capsule-chevron {
+  color: #38bdf8;
+  transform: translateX(2px);
+}
+
 .mission-panel-body {
   padding: 12px 14px;
   display: flex;
@@ -4867,6 +6639,88 @@ defineExpose({
   margin-top: 2px;
 }
 
+/* Step 4: Pre-flight Mission Confirmation Summary Card */
+.mission-preflight-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.preflight-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preflight-badge {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+.preflight-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.preflight-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.preflight-route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-family: monospace;
+}
+
+.preflight-route .p-start {
+  color: #94a3b8;
+}
+
+.preflight-route .p-arrow {
+  color: #38bdf8;
+  font-size: 10px;
+}
+
+.preflight-route .p-dest {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.preflight-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #64748b;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding-top: 4px;
+  margin-top: 2px;
+}
+
+.preflight-meta .p-action {
+  color: #e2e8f0;
+}
+
+.preflight-meta .p-dist {
+  color: #38bdf8;
+  font-family: monospace;
+}
+
 .mission-panel-footer {
   padding: 10px 14px;
   background: rgba(30, 41, 59, 0.5);
@@ -5036,6 +6890,52 @@ defineExpose({
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Bottom-Left Map Navigation & Interaction Legend */
+.map-controls-legend {
+  position: absolute;
+  bottom: 66px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px 10px;
+  border-radius: 20px;
+  z-index: 35;
+  pointer-events: none;
+  font-size: 10.5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.legend-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.key-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.legend-desc {
+  color: #94a3b8;
+}
+
+.legend-divider {
+  width: 1px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* ---------------------------------------------------- */

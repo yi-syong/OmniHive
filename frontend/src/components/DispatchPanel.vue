@@ -34,10 +34,10 @@
 
       <!-- Dispatch Form Body -->
       <div v-else class="dispatch-body">
-        <!-- Target Node Selection -->
+        <!-- Target Node Selection (Concept Icon: Target 終點) -->
         <div class="control-section">
           <div class="section-label">
-            <Navigation :size="13" />
+            <Target :size="13" class="text-cyan" />
             <span>目標站點</span>
           </div>
           <select v-model="selectedNodeForDispatch" class="node-select">
@@ -96,12 +96,13 @@
 import { ref, computed, watch } from 'vue';
 import { 
   Send, 
-  Navigation, 
+  Target, 
   Workflow, 
-  Package, 
-  Truck, 
-  Zap, 
+  PackagePlus, 
+  PackageMinus, 
+  BatteryCharging, 
   Clock, 
+  Shuffle,
   ChevronLeft, 
   ChevronRight, 
   ShieldAlert,
@@ -146,7 +147,7 @@ function getNodeRoleLabel(func: string): string {
   switch (func) {
     case 'Idle/Charge':
     case 'Charge': return '充電站';
-    case 'Transit': return '通道點';
+    case 'Transit': return '交會點';
     case 'Wait': return '等待點';
     case 'Cargo':
     case 'Pick-up':
@@ -156,11 +157,11 @@ function getNodeRoleLabel(func: string): string {
 }
 
 const actions = [
-  { value: 'none' as DispatchAction, label: '純移動', icon: Navigation },
+  { value: 'none' as DispatchAction, label: '純移動', icon: Shuffle },
   { value: 'wait' as DispatchAction, label: '等待', icon: Clock },
-  { value: 'pick' as DispatchAction, label: '取貨', icon: Package },
-  { value: 'drop' as DispatchAction, label: '放貨', icon: Truck },
-  { value: 'charge' as DispatchAction, label: '充電', icon: Zap },
+  { value: 'pick' as DispatchAction, label: '取貨', icon: PackagePlus },
+  { value: 'drop' as DispatchAction, label: '放貨', icon: PackageMinus },
+  { value: 'charge' as DispatchAction, label: '充電', icon: BatteryCharging },
 ];
 
 function isActionDisabled(act: DispatchAction): boolean {

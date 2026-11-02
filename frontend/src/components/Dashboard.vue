@@ -89,55 +89,11 @@
             </div>
           </div>
 
-          <!-- 1.1 VDA 5050 Traffic Control Strategy Hot-Swap Card -->
-          <div class="strategy-selector-card">
-            <div class="strategy-card-header">
-              <div class="strategy-title-group">
-                <GitFork :size="13" class="text-cyan" />
-                <span class="strategy-title">VDA 5050 交管演算法</span>
-              </div>
-              <span class="strategy-badge" :class="trafficMetrics.strategy_name === 'reroute' ? 'badge-reroute' : 'badge-wait'">
-                {{ trafficMetrics.strategy_name === 'reroute' ? '動態繞路模式' : '死等淨空模式' }}
-              </span>
-            </div>
-            <div class="strategy-button-group">
-              <button 
-                :class="['strat-btn', { active: trafficMetrics.strategy_name === 'wait' }]"
-                @click="setTrafficStrategy('wait')"
-                title="死等淨空：前方節點未釋放 (Horizon) 立即原地煞停，絕對安全零繞路"
-              >
-                <PauseCircle :size="12" />
-                <span>等待優先 (Wait)</span>
-              </button>
-              <button 
-                :class="['strat-btn', { active: trafficMetrics.strategy_name === 'reroute' }]"
-                @click="setTrafficStrategy('reroute')"
-                title="動態繞路：停等超過閾值自動觸發 A* 尋求避障替代路線，提升全廠吞吐量"
-              >
-                <Shuffle :size="12" />
-                <span>繞路優先 (Reroute)</span>
-              </button>
-            </div>
-
-            <!-- Deadlock Recovery Quick Action -->
-            <div class="strategy-emergency-row">
-              <button 
-                type="button"
-                class="strat-unstick-btn"
-                @click="handleDashboardFleetReset"
-                title="強制釋放全場預約路權，中斷卡死任務並重設車隊至待命狀態"
-              >
-                <ShieldAlert :size="13" />
-                <span>一鍵解除全場死鎖 (Unstick Fleet)</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 1.2 A/B Testing Telemetry KPI Cards -->
+          <!-- 1.1 Fleet Traffic Performance KPI Section -->
           <div class="ab-metrics-section">
             <div class="ab-metrics-head">
-              <span class="ab-metrics-title">A/B 演算法驗證量化數據</span>
-              <span class="ab-metrics-sub">即時效能對比</span>
+              <span class="ab-metrics-title">車隊交管效能統計</span>
+              <span class="ab-metrics-sub">即時效能指標</span>
             </div>
             <div class="ab-metrics-grid">
               <!-- KPI 1: 全廠吞吐量 -->
@@ -331,7 +287,7 @@
         </div>
 
         <div class="cards-stack">
-          <!-- 1. 行駛速度 -->
+          <!-- 1. 行駛速度 (核心 KPI: m/s 主顯示，km/h 次要輔助) -->
           <div class="data-card">
             <div class="card-head">
               <div class="flex-align-center gap-6">
@@ -341,10 +297,10 @@
               <span class="card-pill">上限 15 km/h</span>
             </div>
             <div class="metric-container">
-              <div class="metric-primary">
-                <span class="metric-number">{{ formatNum(agvState.velocity) }}</span>
-                <span class="metric-unit">m/s</span>
-                <span class="metric-speed-kmh">({{ (agvState.velocity * 3.6).toFixed(1) }} km/h)</span>
+              <div class="metric-primary-large">
+                <span class="metric-number-lg">{{ formatNum(agvState.velocity) }}</span>
+                <span class="metric-unit-lg">m/s</span>
+                <span class="metric-sub-speed">({{ (agvState.velocity * 3.6).toFixed(1) }} km/h)</span>
               </div>
               <div class="progress-track">
                 <div 
@@ -355,7 +311,7 @@
             </div>
           </div>
 
-          <!-- 2. 車輛電量 -->
+          <!-- 2. 車輛電量 (核心 KPI: 大數值 + 預估運行時間) -->
           <div class="data-card">
             <div class="card-head">
               <div class="flex-align-center gap-6">
@@ -369,12 +325,15 @@
             </div>
             <div class="metric-container">
               <div class="battery-split">
-                <div class="metric-primary">
-                  <span class="metric-number">{{ agvState.battery.level.toFixed(1) }}</span>
-                  <span class="metric-unit">%</span>
+                <div class="metric-primary-large">
+                  <span class="metric-number-lg">{{ agvState.battery.level.toFixed(0) }}</span>
+                  <span class="metric-unit-lg">%</span>
+                  <span class="metric-sub-runtime">
+                    {{ agvState.battery.charging ? '(充電補電中)' : `(~${Math.max(0.5, (agvState.battery.level * 0.045)).toFixed(1)} 小時)` }}
+                  </span>
                 </div>
                 <div class="battery-rate-tag" :class="agvState.battery.charging ? 'rate-charge' : 'rate-drain'">
-                  <span>{{ agvState.battery.charging ? '充電中 (+1.5%/s)' : (agvState.task_info.has_cargo ? '載重運轉中' : '一般運作') }}</span>
+                  <span>{{ agvState.battery.charging ? '補電中' : (agvState.task_info.has_cargo ? '載重運轉' : '待命運行') }}</span>
                 </div>
               </div>
               <div class="progress-track">
@@ -385,7 +344,7 @@
               </div>
               <!-- Cargo load factor indicator -->
               <div class="cargo-drain-indicator">
-                <span class="drain-indicator-label">載重狀態:</span>
+                <span class="drain-indicator-label">貨物負載:</span>
                 <span :class="['drain-badge', agvState.task_info.has_cargo ? 'cargo-loaded' : 'cargo-empty']">
                   {{ agvState.task_info.has_cargo ? '📦 載貨作業中' : '空載' }}
                 </span>
@@ -425,42 +384,58 @@
             </div>
           </div>
 
-          <!-- 4. 即時位置 -->
-          <div class="data-card">
-            <div class="card-head">
-              <span class="card-title">車輛即時位置</span>
-              <div class="node-sequence">
+          <!-- 4. 即時位置 (預設折疊工程座標，避免干擾) -->
+          <div class="data-card engineering-card">
+            <button 
+              type="button" 
+              class="card-head-clickable" 
+              @click="showEngineeringCoords = !showEngineeringCoords"
+              title="展開/收合工程座標與詳細朝向"
+            >
+              <div class="flex-align-center gap-6">
+                <Compass :size="14" class="text-cyan" />
+                <span class="card-title">停靠位置: {{ agvState.task_info.current_node || 'Node-01' }}</span>
+              </div>
+              <div class="flex-align-center gap-6">
+                <span class="card-pill">{{ showEngineeringCoords ? '收合' : '工程座標' }}</span>
+                <ChevronDown :size="13" class="transition-transform" :class="{ 'rotate-180': showEngineeringCoords }" />
+              </div>
+            </button>
+
+            <div v-show="showEngineeringCoords" class="coords-expanded-wrap">
+              <div class="node-sequence mb-8">
+                <span class="seq-lbl">站點序列:</span>
                 <span class="node-badge prev">{{ agvState.task_info.previous_node || 'N1' }}</span>
                 <span class="seq-arrow">→</span>
                 <span class="node-badge curr">{{ agvState.task_info.current_node || 'N1' }}</span>
               </div>
-            </div>
 
-            <div class="coords-row">
-              <div class="coord-box">
-                <span class="axis-tag">X</span>
-                <span class="coord-value">{{ formatNum(agvState.position.x) }}</span>
-                <span class="coord-unit">m</span>
-              </div>
-              <div class="coord-box">
-                <span class="axis-tag">Y</span>
-                <span class="coord-value">{{ formatNum(agvState.position.y) }}</span>
-                <span class="coord-unit">m</span>
-              </div>
-              <div class="coord-box">
-                <span class="axis-tag">Z</span>
-                <span class="coord-value">{{ formatNum(agvState.position.z) }}</span>
-                <span class="coord-unit">m</span>
-              </div>
-              <div class="coord-box heading-box">
-                <span class="axis-tag">朝向</span>
-                <span class="coord-value">{{ formatTheta(agvState.position.theta) }}</span>
-                <span class="coord-unit">°</span>
-                <div class="mini-compass" :title="`車頭角度: ${formatTheta(agvState.position.theta)}°`">
-                  <div 
-                    class="compass-needle" 
-                    :style="{ transform: `rotate(${agvState.position.theta}rad)` }"
-                  ></div>
+              <div class="coords-row">
+                <div class="coord-box">
+                  <span class="axis-tag">X</span>
+                  <span class="coord-value">{{ formatNum(agvState.position.x) }}</span>
+                  <span class="coord-unit">m</span>
+                </div>
+                <div class="coord-box">
+                  <span class="axis-tag">Y</span>
+                  <span class="coord-value">{{ formatNum(agvState.position.y) }}</span>
+                  <span class="coord-unit">m</span>
+                </div>
+                <div class="coord-box">
+                  <span class="axis-tag">Z</span>
+                  <span class="coord-value">{{ formatNum(agvState.position.z) }}</span>
+                  <span class="coord-unit">m</span>
+                </div>
+                <div class="coord-box heading-box">
+                  <span class="axis-tag">朝向</span>
+                  <span class="coord-value">{{ formatTheta(agvState.position.theta) }}</span>
+                  <span class="coord-unit">°</span>
+                  <div class="mini-compass" :title="`車頭角度: ${formatTheta(agvState.position.theta)}°`">
+                    <div 
+                      class="compass-needle" 
+                      :style="{ transform: `rotate(${agvState.position.theta}rad)` }"
+                    ></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -491,7 +466,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import { 
   Activity, 
   Gauge, 
@@ -505,13 +480,11 @@ import {
   Navigation,
   PackageCheck,
   ChevronLeft,
-  GitFork,
-  PauseCircle,
-  Shuffle,
+  ChevronDown,
+  Compass,
   CheckCircle2,
   Clock,
-  TrendingUp,
-  ShieldAlert
+  TrendingUp
 } from 'lucide-vue-next';
 import { 
   agvState, 
@@ -523,21 +496,15 @@ import {
   is3DQuickDispatchActive,
   requestCameraFollowVehicle,
   trafficMetrics,
-  setTrafficStrategy,
   fleetVehicles,
   selectVehicle,
-  currentAppMode,
-  resetFleet
+  currentAppMode
 } from '../services/websocket';
 import type { StateUpdateMessage } from '../types';
 
 defineEmits<{ (e: 'close'): void }>();
 
-function handleDashboardFleetReset() {
-  if (confirm('🚨 確定要一鍵解除全場死鎖？\n系統將立即釋放所有車輛的鎖定路權，中斷停等任務並重設車隊至待命狀態。')) {
-    resetFleet();
-  }
-}
+const showEngineeringCoords = ref(false);
 
 const statusLabel = computed(() => {
   if (agvState.task_info.is_traffic_wait) {
@@ -1468,6 +1435,70 @@ function getBatteryModeClass(mode: string | undefined): string {
   font-size: 13px;
   color: #94a3b8;
   font-weight: 600;
+}
+
+.metric-primary-large {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.metric-number-lg {
+  font-size: 30px;
+  font-weight: 800;
+  color: #f8fafc;
+  line-height: 1;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  letter-spacing: -0.5px;
+}
+
+.metric-unit-lg {
+  font-size: 14px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.metric-sub-speed {
+  font-size: 12px;
+  color: #38bdf8;
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.metric-sub-runtime {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.card-head-clickable {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.coords-expanded-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.transition-transform {
+  transition: transform 0.2s ease;
+}
+
+.rotate-180 {
+  transform: rotate(180deg);
 }
 
 .metric-speed-kmh {

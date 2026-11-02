@@ -3,136 +3,385 @@
   "nodes": [
     {
       "id": "Node-01",
-      "name": "充電站 Node-01",
-      "x": 0,
+      "name": "等待點 Node-01",
+      "x": 4.4,
       "y": 0,
-      "z": 0,
-      "function": "Idle/Charge",
-      "description": "AGV 待命與自動充電站",
-      "has_cargo": false
-    },
-    {
-      "id": "Node-02",
-      "name": "通道點 Node-02",
-      "x": 5.07,
-      "y": 0,
-      "z": -0.19,
-      "function": "Transit",
-      "description": "中央導航通道點",
-      "has_cargo": false
-    },
-    {
-      "id": "Node-03",
-      "name": "貨物站 Node-03",
-      "x": 14.86,
-      "y": 0,
-      "z": 0.88,
-      "function": "Cargo",
-      "description": "智慧貨物取貨站點（有貨）",
-      "has_cargo": true
-    },
-    {
-      "id": "Node-04",
-      "name": "貨物站 Node-04",
-      "x": 3.58,
-      "y": 0,
-      "z": 6.68,
-      "function": "Cargo",
-      "description": "智慧貨物卸貨站點（無貨）",
-      "has_cargo": false
-    },
-    {
-      "id": "Node-05",
-      "name": "通道點 Node-05",
-      "x": -0.16,
-      "y": 0,
-      "z": -4.43,
-      "function": "Transit",
-      "description": "導航通道點（純移動不停留）",
-      "has_cargo": false
-    },
-    {
-      "id": "Node-06",
-      "name": "通道點 Node-06",
-      "x": -6.1,
-      "y": 0,
-      "z": -2.2,
-      "function": "Transit",
-      "description": "導航通道點（純移動不停留）",
-      "has_cargo": false
-    },
-    {
-      "id": "Node-07",
-      "name": "通道點 Node-07",
-      "x": -5.64,
-      "y": 0,
-      "z": 0.8,
-      "function": "Transit",
-      "description": "導航通道點（純移動不停留）",
-      "has_cargo": false
-    },
-    {
-      "id": "Node-08",
-      "name": "等待點 Node-08",
-      "x": -5.3,
-      "y": 0,
-      "z": -6.5,
+      "z": -10.1,
       "function": "Wait",
       "description": "原地等待避車點（停留待命）",
       "has_cargo": false
     },
     {
-      "id": "Node-09",
-      "name": "充電站 Node-09",
-      "x": -0.4,
+      "id": "Node-02",
+      "name": "等待點 Node-02",
+      "x": 9.2,
       "y": 0,
-      "z": -7.6,
+      "z": -4.3,
+      "function": "Wait",
+      "description": "原地等待避車點（停留待命）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-03",
+      "name": "等待點 Node-03",
+      "x": 3,
+      "y": 0,
+      "z": -5.9,
+      "function": "Wait",
+      "description": "原地等待避車點（停留待命）",
+      "has_cargo": false,
+      "rotationY": 4.7124
+    },
+    {
+      "id": "Node-04",
+      "name": "等待點 Node-04",
+      "x": -6.6,
+      "y": 0,
+      "z": -7.7,
+      "function": "Wait",
+      "description": "原地等待避車點（停留待命）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-05",
+      "name": "充電站 Node-05",
+      "x": -7.4,
+      "y": 0,
+      "z": -1.7,
       "function": "Idle/Charge",
       "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-06",
+      "name": "充電站 Node-06",
+      "x": -12.6,
+      "y": 0,
+      "z": -2.9,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-07",
+      "name": "充電站 Node-07",
+      "x": -7,
+      "y": 0,
+      "z": 13.6,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-08",
+      "name": "充電站 Node-08",
+      "x": -9.7,
+      "y": 0,
+      "z": -4.7,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-09",
+      "name": "充電站 Node-09",
+      "x": -10.8,
+      "y": 0,
+      "z": -8.1,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-10",
+      "name": "充電站 Node-10",
+      "x": -6,
+      "y": 0,
+      "z": 5,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-11",
+      "name": "充電站 Node-11",
+      "x": -9.9,
+      "y": 0,
+      "z": 3.5,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-12",
+      "name": "貨物站 Node-12",
+      "x": -1,
+      "y": 0,
+      "z": 12.5,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": true,
+      "rotationY": 3.1416
+    },
+    {
+      "id": "Node-13",
+      "name": "貨物站 Node-13",
+      "x": -5.1,
+      "y": 0,
+      "z": 2.9,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-14",
+      "name": "貨物站 Node-14",
+      "x": -7.7,
+      "y": 0,
+      "z": 1.1,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-15",
+      "name": "貨物站 Node-15",
+      "x": -9.8,
+      "y": 0,
+      "z": -1.9,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-16",
+      "name": "貨物站 Node-16",
+      "x": -4.9,
+      "y": 0,
+      "z": -5.9,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-17",
+      "name": "貨物站 Node-17",
+      "x": -4,
+      "y": 0,
+      "z": -2.9,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-18",
+      "name": "貨物站 Node-18",
+      "x": -3.5,
+      "y": 0,
+      "z": -6.8,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-19",
+      "name": "貨物站 Node-19",
+      "x": -2.8,
+      "y": 0,
+      "z": -10,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-20",
+      "name": "交會點 Node-20",
+      "x": 10.5,
+      "y": 0,
+      "z": 13.6,
+      "function": "Transit",
+      "description": "路網交會點（導航移動通道）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-21",
+      "name": "等待點 Node-21",
+      "x": 10,
+      "y": 0,
+      "z": 11.5,
+      "function": "Wait",
+      "description": "原地等待避車點（停留待命）",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-22",
+      "name": "充電站 Node-22",
+      "x": 10,
+      "y": 0,
+      "z": 8.5,
+      "function": "Idle/Charge",
+      "description": "AGV 自動充電樁",
+      "has_cargo": false
+    },
+    {
+      "id": "Node-23",
+      "name": "貨物站 Node-23",
+      "x": 10.5,
+      "y": 0,
+      "z": 5,
+      "function": "Cargo",
+      "description": "棧板取放貨物站點",
       "has_cargo": false
     }
   ],
   "edges": [
     {
-      "id": "Edge-01-02",
-      "startNodeId": "Node-01",
-      "endNodeId": "Node-02",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-02-03",
-      "startNodeId": "Node-02",
-      "endNodeId": "Node-03",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-03-04",
-      "startNodeId": "Node-03",
-      "endNodeId": "Node-04",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-02-04",
-      "startNodeId": "Node-02",
-      "endNodeId": "Node-04",
-      "bidirectional": true
-    },
-    {
-      "id": "Edge-07-06",
+      "id": "Edge-07-10",
       "startNodeId": "Node-07",
+      "endNodeId": "Node-10",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-12-10",
+      "startNodeId": "Node-12",
+      "endNodeId": "Node-10",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-10-13",
+      "startNodeId": "Node-10",
+      "endNodeId": "Node-13",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-14-13",
+      "startNodeId": "Node-14",
+      "endNodeId": "Node-13",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-10-11",
+      "startNodeId": "Node-10",
+      "endNodeId": "Node-11",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-14-11",
+      "startNodeId": "Node-14",
+      "endNodeId": "Node-11",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-14-15",
+      "startNodeId": "Node-14",
+      "endNodeId": "Node-15",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-15-06",
+      "startNodeId": "Node-15",
       "endNodeId": "Node-06",
       "bidirectional": true
     },
     {
-      "id": "Edge-06-05",
-      "startNodeId": "Node-06",
+      "id": "Edge-15-08",
+      "startNodeId": "Node-15",
+      "endNodeId": "Node-08",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-15-05",
+      "startNodeId": "Node-15",
       "endNodeId": "Node-05",
       "bidirectional": true
     },
     {
-      "id": "Edge-08-05",
-      "startNodeId": "Node-08",
+      "id": "Edge-05-08",
+      "startNodeId": "Node-05",
+      "endNodeId": "Node-08",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-05-04",
+      "startNodeId": "Node-05",
+      "endNodeId": "Node-04",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-16-05",
+      "startNodeId": "Node-16",
       "endNodeId": "Node-05",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-17-05",
+      "startNodeId": "Node-17",
+      "endNodeId": "Node-05",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-13-05",
+      "startNodeId": "Node-13",
+      "endNodeId": "Node-05",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-18-03",
+      "startNodeId": "Node-18",
+      "endNodeId": "Node-03",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-19-04",
+      "startNodeId": "Node-19",
+      "endNodeId": "Node-04",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-04-18",
+      "startNodeId": "Node-04",
+      "endNodeId": "Node-18",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-16-18",
+      "startNodeId": "Node-16",
+      "endNodeId": "Node-18",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-16-17",
+      "startNodeId": "Node-16",
+      "endNodeId": "Node-17",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-17-03",
+      "startNodeId": "Node-17",
+      "endNodeId": "Node-03",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-03-01",
+      "startNodeId": "Node-03",
+      "endNodeId": "Node-01",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-02-01",
+      "startNodeId": "Node-02",
+      "endNodeId": "Node-01",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-12-02",
+      "startNodeId": "Node-12",
+      "endNodeId": "Node-02"
+    },
+    {
+      "id": "Edge-08-06",
+      "startNodeId": "Node-08",
+      "endNodeId": "Node-06",
       "bidirectional": true
     },
     {
@@ -142,15 +391,45 @@
       "bidirectional": true
     },
     {
-      "id": "Edge-01-07",
-      "startNodeId": "Node-07",
-      "endNodeId": "Node-01",
+      "id": "Edge-04-09",
+      "startNodeId": "Node-04",
+      "endNodeId": "Node-09",
       "bidirectional": true
     },
     {
-      "id": "Edge-02-05",
-      "startNodeId": "Node-02",
-      "endNodeId": "Node-05",
+      "id": "Edge-06-09",
+      "startNodeId": "Node-06",
+      "endNodeId": "Node-09",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-18-19",
+      "startNodeId": "Node-18",
+      "endNodeId": "Node-19",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-01-19",
+      "startNodeId": "Node-01",
+      "endNodeId": "Node-19",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-03-02",
+      "startNodeId": "Node-03",
+      "endNodeId": "Node-02",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-12-03",
+      "startNodeId": "Node-12",
+      "endNodeId": "Node-03",
+      "bidirectional": true
+    },
+    {
+      "id": "Edge-13-02",
+      "startNodeId": "Node-13",
+      "endNodeId": "Node-02",
       "bidirectional": true
     }
   ],
