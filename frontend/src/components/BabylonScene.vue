@@ -150,6 +150,11 @@ const {
   resetDispatchSteps,
   handleQuickDispatchLaunch
 } = useSceneController(canvasRef, emit);
+
+defineExpose({
+  handleSaveLayout,
+  handleResetLayout: resetToStandardTemplate
+});
 </script>
 
 <style scoped>
