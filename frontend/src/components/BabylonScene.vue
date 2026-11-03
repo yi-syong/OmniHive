@@ -555,6 +555,34 @@ import {
   currentTimeScale
 } from '../services/websocket';
 import type { LayoutNode, LayoutProp, LayoutEdge, DispatchAction } from '../types';
+import {
+  getNodeColor,
+  getNodeFunctionLabel,
+  getNodeTypeDefaultDesc,
+  isChargingNode as isChargingNodeUtil,
+  isCargoNode as isCargoNodeUtil,
+  getNodeObj as getNodeObjUtil,
+  getNodeNameOnly as getNodeNameOnlyUtil,
+  isNodeOccupiedByOther as isNodeOccupiedByOtherUtil,
+  getOtherOccupantId as getOtherOccupantIdUtil,
+  getNodeOccupantLabel as getNodeOccupantLabelUtil,
+  getStepActionDesc,
+  getActionLabel
+} from '../scene/layout/nodeUtils';
+import {
+  drawRoundRect,
+  drawCadPlacementFootprint,
+  drawLargeDirectionArrow
+} from '../scene/textures/editorGraphics';
+import { drawStationIconTexture } from '../scene/textures/stationIcon';
+import {
+  resolvePickedNodeFromPointer as resolvePickedNodeFromPointerUtil
+} from '../scene/editor/picking';
+import {
+  computeSmartSnap as computeSmartSnapUtil,
+  checkObjectClearanceCollision as checkObjectClearanceCollisionUtil,
+  MIN_CLEARANCE_DIST
+} from '../scene/editor/snapping';
 
 const emit = defineEmits<{
   (e: 'notify', msg: string, type: 'success' | 'info' | 'warn'): void;
@@ -620,46 +648,15 @@ const isCurrentVehicleBusy = computed(() => {
 // Left floating mission dispatch panel minimize toggle
 const isMissionPanelMinimized = ref(false);
 
-function getStepActionDesc(action?: string): string {
-  switch (action) {
-    case 'pick': return '取貨';
-    case 'drop': return '放貨';
-    case 'wait': return '停等';
-    case 'charge': return '充電';
-    case 'none':
-    default:
-      return '通過';
-  }
-}
-
 function handleCancelCurrentMission() {
   const vId = selectedVehicleId.value || 'AGV-001';
   cancelOrder(vId, '使用者手動中止任務 / 解除卡死');
   emit('notify', `🛑 已發送中止指令給車輛 ${vId}，釋放交管路權！`, 'info');
 }
 
-function isNodeOccupiedByOther(nodeId: string): boolean {
-  for (const [vId, veh] of Object.entries(fleetVehicles)) {
-    if (vId !== selectedVehicleId.value && veh.task_info?.current_node === nodeId) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function getOtherOccupantId(nodeId: string): string {
-  for (const [vId, veh] of Object.entries(fleetVehicles)) {
-    if (vId !== selectedVehicleId.value && veh.task_info?.current_node === nodeId) {
-      return vId;
-    }
-  }
-  return '';
-}
-
-function getNodeOccupantLabel(nodeId: string): string {
-  const occupant = getOtherOccupantId(nodeId);
-  return occupant ? ` [${occupant} 佔用中 ⚠️]` : '';
-}
+const isNodeOccupiedByOther = (nodeId: string) => isNodeOccupiedByOtherUtil(nodeId, fleetVehicles, selectedVehicleId.value);
+const getOtherOccupantId = (nodeId: string) => getOtherOccupantIdUtil(nodeId, fleetVehicles, selectedVehicleId.value);
+const getNodeOccupantLabel = (nodeId: string) => getNodeOccupantLabelUtil(nodeId, fleetVehicles, selectedVehicleId.value);
 
 const edgeMeshesMap = new Map<string, BABYLON.LinesMesh | BABYLON.Mesh>();
 const edgeArrowMeshesMap = new Map<string, BABYLON.AbstractMesh[]>();
@@ -695,9 +692,6 @@ const cargoContextMenu = ref<{
 
 // Reset / Clear Map Dialog State
 const showResetModal = ref(false);
-
-// Minimum Real-World Safety Clearance (Non-overlapping constraint)
-const MIN_CLEARANCE_DIST = 1.0;
 
 // Station Pallet & Cargo Meshes
 const stationPalletMap = new Map<string, BABYLON.AbstractMesh>();
@@ -736,90 +730,8 @@ let ghostCadDynamicTexture: BABYLON.DynamicTexture | null = null;
 let ghostPadMaterial: BABYLON.StandardMaterial | null = null;
 let ghostRingMaterial: BABYLON.StandardMaterial | null = null;
 
-function getNodeObj(nodeId: string): LayoutNode | undefined {
-  return factoryLayout.nodes.find(n => n.id === nodeId);
-}
-
-function isCargoNode(nodeId: string): boolean {
-  const n = getNodeObj(nodeId);
-  return !!n && (n.function === 'Cargo' || n.function === 'Pick-up' || n.function === 'Drop-off');
-}
-
-function drawLargeDirectionArrow(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  angleRad: number,
-  isActive: boolean
-) {
-  ctx.clearRect(0, 0, w, h);
-  const cx = w / 2;
-  const cy = h / 2;
-
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(angleRad);
-
-  // Large, bold, sharp directional arrow shape (NO circular outer frame!)
-  ctx.beginPath();
-  ctx.moveTo(0, -104);
-  ctx.lineTo(92, 10);
-  ctx.lineTo(40, 10);
-  ctx.lineTo(40, 100);
-  ctx.lineTo(-40, 100);
-  ctx.lineTo(-40, 10);
-  ctx.lineTo(-92, 10);
-  ctx.closePath();
-
-  if (isActive) {
-    // Glowing vibrant Amber active state
-    ctx.shadowColor = '#f59e0b';
-    ctx.shadowBlur = 24;
-    ctx.fillStyle = '#f59e0b';
-    ctx.fill();
-
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 7;
-    ctx.stroke();
-
-    // Inner bright core
-    ctx.beginPath();
-    ctx.moveTo(0, -80);
-    ctx.lineTo(60, 0);
-    ctx.lineTo(24, 0);
-    ctx.lineTo(24, 80);
-    ctx.lineTo(-24, 80);
-    ctx.lineTo(-24, 0);
-    ctx.lineTo(-60, 0);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-    ctx.fill();
-  } else {
-    // Cyberpunk electric cyan neon arrow
-    ctx.shadowColor = '#00f0ff';
-    ctx.shadowBlur = 14;
-    ctx.fillStyle = 'rgba(0, 24, 38, 0.82)';
-    ctx.fill();
-
-    ctx.strokeStyle = '#00f0ff';
-    ctx.lineWidth = 6;
-    ctx.stroke();
-
-    // Inner subtle chevron notch accent
-    ctx.beginPath();
-    ctx.moveTo(0, -64);
-    ctx.lineTo(46, -4);
-    ctx.lineTo(20, -4);
-    ctx.lineTo(0, -32);
-    ctx.lineTo(-20, -4);
-    ctx.lineTo(-46, -4);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0, 240, 255, 0.40)';
-    ctx.fill();
-  }
-
-  ctx.restore();
-}
+const getNodeObj = (nodeId: string): LayoutNode | undefined => getNodeObjUtil(nodeId, factoryLayout.nodes);
+const isCargoNode = (nodeId: string): boolean => isCargoNodeUtil(nodeId, factoryLayout.nodes);
 
 function createNodeRotationWidget(sc: BABYLON.Scene, _nodeMesh: BABYLON.AbstractMesh, nodeId: string) {
   clearNodeRotationWidget();
@@ -896,59 +808,13 @@ function clearNodeRotationWidget() {
 // ----------------------------------------------------
 // Smart Alignment Guides & Grid Snapping Engine
 // ----------------------------------------------------
-interface SmartSnapResult {
-  snappedX: number;
-  snappedZ: number;
-  alignedNodesX: LayoutNode[];
-  alignedNodesZ: LayoutNode[];
-}
-
-function computeSmartSnap(
+const computeSmartSnap = (
   rawX: number,
   rawZ: number,
   excludeNodeId?: string,
   snapThreshold: number = 0.35,
   gridStep: number = 0.5
-): SmartSnapResult {
-  let snappedX = Math.round(rawX / gridStep) * gridStep;
-  let snappedZ = Math.round(rawZ / gridStep) * gridStep;
-  const alignedNodesX: LayoutNode[] = [];
-  const alignedNodesZ: LayoutNode[] = [];
-
-  let minDiffX = snapThreshold;
-  let minDiffZ = snapThreshold;
-
-  for (const node of factoryLayout.nodes) {
-    if (excludeNodeId && node.id === excludeNodeId) continue;
-
-    const diffX = Math.abs(rawX - node.x);
-    if (diffX < minDiffX) {
-      minDiffX = diffX;
-      snappedX = node.x;
-      alignedNodesX.length = 0;
-      alignedNodesX.push(node);
-    } else if (Math.abs(diffX - minDiffX) < 0.001 && diffX < snapThreshold) {
-      alignedNodesX.push(node);
-    }
-
-    const diffZ = Math.abs(rawZ - node.z);
-    if (diffZ < minDiffZ) {
-      minDiffZ = diffZ;
-      snappedZ = node.z;
-      alignedNodesZ.length = 0;
-      alignedNodesZ.push(node);
-    } else if (Math.abs(diffZ - minDiffZ) < 0.001 && diffZ < snapThreshold) {
-      alignedNodesZ.push(node);
-    }
-  }
-
-  return {
-    snappedX: Math.round(snappedX * 100) / 100,
-    snappedZ: Math.round(snappedZ * 100) / 100,
-    alignedNodesX,
-    alignedNodesZ
-  };
-}
+) => computeSmartSnapUtil(rawX, rawZ, factoryLayout.nodes, excludeNodeId, snapThreshold, gridStep);
 
 function clearAlignmentGuideLines() {
   if (alignmentGuideLinesMesh) {
@@ -969,251 +835,6 @@ function updateAlignmentGuideLines(
   _alignedNodesZ: LayoutNode[]
 ) {
   clearAlignmentGuideLines();
-}
-
-function drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-interface NodeStyleProfile {
-  nameZh: string;
-  subZh: string;
-  icon: string;
-  themeColor: string;
-  badgeBg: string;
-  bgGradStart: string;
-  bgGradEnd: string;
-}
-
-function getNodeStyleProfile(func: string): NodeStyleProfile {
-  switch (func) {
-    case 'Wait':
-      return {
-        nameZh: '等待點',
-        subZh: 'WAIT / STANDBY',
-        icon: '🕒',
-        themeColor: '#facc15', // Concept Diagram Yellow
-        badgeBg: 'rgba(250, 204, 21, 0.25)',
-        bgGradStart: 'rgba(50, 40, 10, 0.75)',
-        bgGradEnd: 'rgba(20, 15, 5, 0.50)'
-      };
-    case 'Cargo':
-    case 'Pick-up':
-    case 'Drop-off':
-      return {
-        nameZh: '貨物站',
-        subZh: 'CARGO / PALLET',
-        icon: '📦',
-        themeColor: '#f97316', // Vibrant Industrial Orange
-        badgeBg: 'rgba(249, 115, 22, 0.25)',
-        bgGradStart: 'rgba(60, 25, 5, 0.75)',
-        bgGradEnd: 'rgba(25, 10, 0, 0.50)'
-      };
-    case 'Idle/Charge':
-    case 'Charge':
-      return {
-        nameZh: '充電站',
-        subZh: 'POWER / CHARGE',
-        icon: '⚡',
-        themeColor: '#00f0ff', // Electric Cyan
-        badgeBg: 'rgba(0, 240, 255, 0.25)',
-        bgGradStart: 'rgba(0, 40, 60, 0.75)',
-        bgGradEnd: 'rgba(0, 15, 25, 0.50)'
-      };
-    case 'Transit':
-    default:
-      return {
-        nameZh: '交會點',
-        subZh: 'TRANSIT / INTERSECT',
-        icon: '🔀',
-        themeColor: '#38bdf8', // Deep Sky Blue
-        badgeBg: 'rgba(56, 189, 248, 0.25)',
-        bgGradStart: 'rgba(15, 30, 65, 0.75)',
-        bgGradEnd: 'rgba(5, 10, 28, 0.50)'
-      };
-  }
-}
-
-function drawCadPlacementFootprint(ctx: CanvasRenderingContext2D, w: number, h: number, func: string = 'Transit') {
-  ctx.clearRect(0, 0, w, h);
-
-  const profile = getNodeStyleProfile(func);
-  const pad = 14;
-  const innerW = w - pad * 2;
-  const innerH = h - pad * 2;
-  const cx = w / 2;
-  const cy = h / 2;
-
-  // 1. Sleek Themed Holographic Background Fill
-  const gradient = ctx.createRadialGradient(cx, cy, 30, cx, cy, innerW / 2);
-  gradient.addColorStop(0, profile.bgGradStart);
-  gradient.addColorStop(1, profile.bgGradEnd);
-  ctx.fillStyle = gradient;
-  drawRoundRect(ctx, pad, pad, innerW, innerH, 16);
-  ctx.fill();
-
-  // 2. Blueprint Alignment Grid
-  ctx.strokeStyle = `${profile.themeColor}22`;
-  ctx.lineWidth = 1;
-  const cols = 6;
-  const rows = 5;
-  for (let i = 1; i < cols; i++) {
-    const gx = pad + (innerW / cols) * i;
-    ctx.beginPath();
-    ctx.moveTo(gx, pad);
-    ctx.lineTo(gx, pad + innerH);
-    ctx.stroke();
-  }
-  for (let j = 1; j < rows; j++) {
-    const gy = pad + (innerH / rows) * j;
-    ctx.beginPath();
-    ctx.moveTo(pad, gy);
-    ctx.lineTo(pad + innerW, gy);
-    ctx.stroke();
-  }
-
-  // 3. Central Target Rings
-  ctx.beginPath();
-  ctx.arc(cx, cy, 64, 0, Math.PI * 2);
-  ctx.strokeStyle = `${profile.themeColor}88`;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, 36, 0, Math.PI * 2);
-  ctx.fillStyle = `${profile.themeColor}26`;
-  ctx.fill();
-  ctx.strokeStyle = profile.themeColor;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  // 4. Large Node Type Icon in Center
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = 'bold 54px "Segoe UI Symbol", "Apple Color Emoji", sans-serif';
-  ctx.shadowColor = profile.themeColor;
-  ctx.shadowBlur = 18;
-  ctx.fillStyle = profile.themeColor;
-  ctx.fillText(profile.icon, cx, cy - 14);
-  ctx.shadowBlur = 0;
-
-  // 5. Central Function Badge Pill
-  const badgeW = 210;
-  const badgeH = 26;
-  const badgeX = cx - badgeW / 2;
-  const badgeY = cy + 28;
-  ctx.fillStyle = profile.badgeBg;
-  drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 6);
-  ctx.fill();
-  ctx.strokeStyle = profile.themeColor;
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  ctx.font = 'bold 13px "JetBrains Mono", "PingFang TC", "Microsoft JhengHei", sans-serif';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(`${profile.nameZh}  •  ${profile.subZh}`, cx, badgeY + badgeH / 2 + 1);
-
-  // 6. Subtle Dashed Alignment Crosshairs through Center
-  ctx.strokeStyle = `${profile.themeColor}66`;
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([8, 6]);
-  ctx.beginPath();
-  ctx.moveTo(cx, pad + 18);
-  ctx.lineTo(cx, cy - 66);
-  ctx.moveTo(cx, cy + 66);
-  ctx.lineTo(cx, pad + innerH - 18);
-  ctx.moveTo(pad + 18, cy);
-  ctx.lineTo(cx - 66, cy);
-  ctx.moveTo(cx + 66, cy);
-  ctx.lineTo(pad + innerW - 18, cy);
-  ctx.stroke();
-  ctx.setLineDash([]); // clear dash
-
-  // 7. Outer Sleek Rounded Border with Glow
-  ctx.save();
-  ctx.shadowColor = profile.themeColor;
-  ctx.shadowBlur = 10;
-  ctx.strokeStyle = `${profile.themeColor}99`;
-  ctx.lineWidth = 2;
-  drawRoundRect(ctx, pad, pad, innerW, innerH, 16);
-  ctx.stroke();
-  ctx.restore();
-
-  // 8. Signature Industrial CAD Corner L-Brackets
-  const bLen = 34;
-  const bThick = 4.5;
-  ctx.strokeStyle = profile.themeColor;
-  ctx.lineWidth = bThick;
-  ctx.lineCap = 'square';
-
-  // Top-Left
-  ctx.beginPath();
-  ctx.moveTo(pad, pad + bLen);
-  ctx.lineTo(pad, pad);
-  ctx.lineTo(pad + bLen, pad);
-  ctx.stroke();
-
-  // Top-Right
-  ctx.beginPath();
-  ctx.moveTo(pad + innerW - bLen, pad);
-  ctx.lineTo(pad + innerW, pad);
-  ctx.lineTo(pad + innerW, pad + bLen);
-  ctx.stroke();
-
-  // Bottom-Right
-  ctx.beginPath();
-  ctx.moveTo(pad + innerW, pad + innerH - bLen);
-  ctx.lineTo(pad + innerW, pad + innerH);
-  ctx.lineTo(pad + innerW - bLen, pad + innerH);
-  ctx.stroke();
-
-  // Bottom-Left
-  ctx.beginPath();
-  ctx.moveTo(pad + bLen, pad + innerH);
-  ctx.lineTo(pad, pad + innerH);
-  ctx.lineTo(pad, pad + innerH - bLen);
-  ctx.stroke();
-
-  // 9. Docking / Alignment Chevron Arrow (Top / Heading 0°)
-  ctx.fillStyle = profile.themeColor;
-  ctx.beginPath();
-  ctx.moveTo(cx, pad - 2);
-  ctx.lineTo(cx - 18, pad + 18);
-  ctx.lineTo(cx - 9, pad + 18);
-  ctx.lineTo(cx, pad + 8);
-  ctx.lineTo(cx + 9, pad + 18);
-  ctx.lineTo(cx + 18, pad + 18);
-  ctx.closePath();
-  ctx.fill();
-
-  // 10. Technical Blueprint Dimensions Typography
-  ctx.fillStyle = profile.themeColor;
-  ctx.font = '700 12px "JetBrains Mono", Consolas, monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText('1.40 m', cx, pad + innerH - 6);
-
-  ctx.save();
-  ctx.translate(pad + 16, cy);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText('1.20 m', 0, 0);
-  ctx.restore();
-
-  // Bay footprint watermark
-  ctx.font = '700 11px "JetBrains Mono", Consolas, monospace';
-  ctx.textAlign = 'left';
-  ctx.fillStyle = profile.themeColor;
-  ctx.fillText(`${profile.nameZh} 預覽 [1.4m x 1.2m]`, pad + 14, pad + 22);
 }
 
 function ensureGhostPlacementPad(sc: BABYLON.Scene) {
@@ -2710,185 +2331,20 @@ function rebuildLayoutInScene(sc: BABYLON.Scene) {
   updateDynamicPathMaterials();
 }
 
-function getNodeColor(func: string): BABYLON.Color3 {
-  switch (func) {
-    case 'Idle/Charge':
-    case 'Charge': return new BABYLON.Color3(0.06, 0.75, 1.0); // Electric Cyan #00f0ff
-    case 'Transit': return new BABYLON.Color3(0.24, 0.55, 0.98); // Deep Sky Blue #3b82f6
-    case 'Wait': return new BABYLON.Color3(0.66, 0.33, 0.97); // Vivid Royal Purple #a855f7
-    case 'Cargo':
-    case 'Pick-up':
-    case 'Drop-off': return new BABYLON.Color3(0.98, 0.45, 0.09); // Vibrant Logistics Orange #f97316
-    default: return new BABYLON.Color3(0.5, 0.5, 0.6);
-  }
-}
+const isChargingNode = (nodeId: string): boolean => isChargingNodeUtil(nodeId, factoryLayout.nodes);
+const getNodeNameOnly = (id: string): string => getNodeNameOnlyUtil(id, factoryLayout.nodes);
 
-function getNodeFunctionLabel(func: string): string {
-  switch (func) {
-    case 'Idle/Charge':
-    case 'Charge': return '充電站';
-    case 'Transit': return '交會點';
-    case 'Wait': return '等待點';
-    case 'Cargo':
-    case 'Pick-up':
-    case 'Drop-off': return '貨物站';
-    default: return func || '一般站點';
-  }
-}
-
-function getNodeTypeDefaultDesc(func: string): string {
-  switch (func) {
-    case 'Idle/Charge':
-    case 'Charge': return 'AGV 自動充電樁';
-    case 'Transit': return '路網交會點（導航移動通道）';
-    case 'Wait': return '原地等待避車點（停留待命）';
-    case 'Cargo':
-    case 'Pick-up':
-    case 'Drop-off': return '棧板取放貨物站點';
-    default: return '場域編輯自訂站點';
-  }
-}
-
-function isChargingNode(nodeId: string): boolean {
-  if (!nodeId) return false;
-  const node = factoryLayout.nodes.find(n => n.id === nodeId);
-  if (!node) return false;
-  return node.function === 'Idle/Charge' || node.name.includes('充電') || node.id.toLowerCase().includes('charge');
-}
-
-function getNodeNameOnly(id: string): string {
-  if (!id) return '';
-  const n = factoryLayout.nodes.find(node => node.id === id);
-  return n ? n.name : id;
-}
-
-/**
- * 深入解析選取的 Mesh 所屬的站點 ID (無論點擊圓盤、外框、棧板、貨物或標示，皆能精確對應到該站點)
- */
-function resolvePickedNodeId(mesh: BABYLON.AbstractMesh | null | undefined): string | null {
-  if (!mesh) return null;
-  let curr: BABYLON.Node | null = mesh;
-  while (curr) {
-    const meta = (curr as any).metadata;
-    if (meta) {
-      if (meta.type === 'node' && meta.id) return meta.id;
-      if (meta.nodeId) return meta.nodeId;
-    }
-    const name = curr.name || '';
-    const match = name.match(/(?:Pad|StationPallet|StationCargo|Ring|ZapIcon|ZapPlane|ForkEntry)_([a-zA-Z0-9_-]+)/);
-    if (match) return match[1];
-    curr = curr.parent;
-  }
-  return null;
-}
-
-/**
- * 全方位解析游標點選或懸停的站點 ID：
- * 1. 直接比對 PickedMesh 及其階層 (resolvePickedNodeId)
- * 2. 多重射線貫穿檢查 (Multi-pick ray penetration)，穿透重疊的 3D 車輛或配件
- * 3. 車輛停靠位置關聯檢查 (若點擊到 AGV，直接對應其停靠或最靠近之站點)
- * 4. 地面近距離吸附 (距離站點中心 <= 0.95m 自動解析，大幅提升點擊手感)
- */
-function resolvePickedNodeFromPointer(
+const resolvePickedNodeFromPointer = (
   sc: BABYLON.Scene,
   pickResult?: BABYLON.Nullable<BABYLON.PickingInfo>
-): string | null {
-  if (!pickResult) return null;
+) => resolvePickedNodeFromPointerUtil(sc, pickResult, factoryLayout.nodes, fleetVehicles, vehicleVisuals);
 
-  // 1. Direct mesh & hierarchy resolution
-  if (pickResult.hit && pickResult.pickedMesh) {
-    const directId = resolvePickedNodeId(pickResult.pickedMesh);
-    if (directId) return directId;
-  }
-
-  // 2. Multi-pick penetration check with ray (penetrates vehicles to find station pads underneath)
-  if (pickResult.ray) {
-    const hits = sc.multiPickWithRay(pickResult.ray, (mesh) => {
-      return mesh.metadata?.type === 'node' || !!resolvePickedNodeId(mesh);
-    });
-    if (hits && hits.length > 0) {
-      for (const h of hits) {
-        if (h.hit && h.pickedMesh) {
-          const nId = resolvePickedNodeId(h.pickedMesh);
-          if (nId) return nId;
-        }
-      }
-    }
-  }
-
-  // 3. Vehicle proximity fallback (if ray hit an AGV vehicle or hitbox)
-  if (pickResult.hit && pickResult.pickedMesh) {
-    const meta = pickResult.pickedMesh.metadata;
-    if (meta && meta.type === 'agv') {
-      const vId = meta.id;
-      if (vId && fleetVehicles[vId]?.task_info?.current_node) {
-        const cNodeId = fleetVehicles[vId].task_info.current_node;
-        if (factoryLayout.nodes.some(n => n.id === cNodeId)) {
-          return cNodeId;
-        }
-      }
-      const vVisual = vId ? vehicleVisuals.get(vId) : null;
-      if (vVisual) {
-        let bestDist = 1.8;
-        let bestNodeId: string | null = null;
-        for (const n of factoryLayout.nodes) {
-          const d = Math.hypot(n.x - vVisual.root.position.x, n.z - vVisual.root.position.z);
-          if (d < bestDist) {
-            bestDist = d;
-            bestNodeId = n.id;
-          }
-        }
-        if (bestNodeId) return bestNodeId;
-      }
-    }
-  }
-
-  // 4. Ground proximity snap (within 0.95m of node center)
-  if (pickResult.hit && pickResult.pickedPoint) {
-    const px = pickResult.pickedPoint.x;
-    const pz = pickResult.pickedPoint.z;
-    let closestDist = 0.95;
-    let closestNodeId: string | null = null;
-    for (const n of factoryLayout.nodes) {
-      const d = Math.hypot(n.x - px, n.z - pz);
-      if (d < closestDist) {
-        closestDist = d;
-        closestNodeId = n.id;
-      }
-    }
-    if (closestNodeId) return closestNodeId;
-  }
-
-  return null;
-}
-
-/**
- * 檢查給定座標 (x, z) 是否與現有物件（其他節點、物件）距離過近產生重疊
- */
-function checkObjectClearanceCollision(
+const checkObjectClearanceCollision = (
   x: number, 
   z: number, 
   excludeId?: string, 
   minDistance: number = MIN_CLEARANCE_DIST
-): { hasCollision: boolean; conflictingWith?: string; distance?: number } {
-  for (const n of factoryLayout.nodes) {
-    if (n.id === excludeId) continue;
-    const dist = Math.hypot(x - n.x, z - n.z);
-    if (dist < minDistance) {
-      return { hasCollision: true, conflictingWith: `站點 ${n.id} (${n.name})`, distance: dist };
-    }
-  }
-
-  for (const p of factoryLayout.props) {
-    if (p.id === excludeId) continue;
-    const dist = Math.hypot(x - p.x, z - p.z);
-    if (dist < minDistance) {
-      return { hasCollision: true, conflictingWith: `物件 ${p.id}`, distance: dist };
-    }
-  }
-
-  return { hasCollision: false };
-}
+) => checkObjectClearanceCollisionUtil(x, z, factoryLayout.nodes, factoryLayout.props, excludeId, minDistance);
 
 /**
  * 切換貨物站點的棧板載貨狀態 (有貨: 棧板+貨物 / 無貨: 無棧板無貨物)
@@ -2965,293 +2421,7 @@ async function toggleStationCargo(node: LayoutNode, forceState?: boolean) {
   emit('notify', `${node.name || node.id}: 已設為「${node.has_cargo ? '有貨 (棧板+貨物)' : '無貨 (無棧板)'}」`, 'info');
 }
 
-/**
- * 依據「工業 AGV 智能工廠 3D 監控界面 UX/UI 概念圖」繪製站點地面動態向量貼圖
- * - 雙層同心發光環 (Double Concentric Status Rings)
- *   正常綠 (#10b981) / 使用中藍 (#0ea5e9) / 等待中黃 (#facc15) / 被佔用橘 (#f97316) / 封鎖紫 (#a855f7) / 故障紅 (#ef4444)
- * - 站點功能核心圖標：
- *   充電站：橫向圓角電池 + 正極柱 + 充電閃電 [ ⚡ ]
- *   取貨站：3D 軸測貨物箱 + 向上箭頭 ⬆📦
- *   放貨站：3D 軸測貨物箱 + 向下箭頭 ⬇📦
- *   等待點：標準圓形時鐘錶盤 + 指針 🕒
- *   交會點：交會雙箭頭 🔀
- *   起點標籤：旗幟 🚩
- *   終點標籤：同心圓靶心 🎯
- */
-function drawStationIconTexture(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  node: LayoutNode,
-  status: 'normal' | 'active' | 'waiting' | 'occupied' | 'fault' = 'normal',
-  badge?: 'start' | 'target' | null
-) {
-  const cx = width / 2;
-  const cy = height / 2;
-  ctx.clearRect(0, 0, width, height);
 
-  // Status Palette (Double concentric rings & glows from concept diagram)
-  let ringColor = '#10b981'; // 正常 Green
-  let glowColor = 'rgba(16, 185, 129, 0.85)';
-  let iconColor = '#34d399';
-  let bgGlow = 'rgba(16, 185, 129, 0.16)';
-
-  if (status === 'active') {
-    ringColor = '#0ea5e9'; // 使用中 Sky Blue
-    glowColor = 'rgba(14, 165, 233, 0.9)';
-    iconColor = '#38bdf8';
-    bgGlow = 'rgba(14, 165, 233, 0.18)';
-  } else if (status === 'waiting') {
-    ringColor = '#facc15'; // 等待中 Yellow
-    glowColor = 'rgba(250, 204, 21, 0.9)';
-    iconColor = '#fde047';
-    bgGlow = 'rgba(250, 204, 21, 0.18)';
-  } else if (status === 'occupied') {
-    ringColor = '#f97316'; // 被佔用 Orange
-    glowColor = 'rgba(249, 115, 22, 0.9)';
-    iconColor = '#fb923c';
-    bgGlow = 'rgba(249, 115, 22, 0.18)';
-  } else if (status === 'fault') {
-    ringColor = '#ef4444'; // 故障 Red
-    glowColor = 'rgba(239, 68, 68, 0.95)';
-    iconColor = '#f87171';
-    bgGlow = 'rgba(239, 68, 68, 0.22)';
-  }
-
-  // 1. Semi-transparent dark slate floor base
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, 238, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(10, 15, 29, 0.88)';
-  ctx.fill();
-
-  // 2. Radial status glow in center
-  const radial = ctx.createRadialGradient(cx, cy, 20, cx, cy, 230);
-  radial.addColorStop(0, bgGlow);
-  radial.addColorStop(1, 'rgba(10, 15, 29, 0)');
-  ctx.fillStyle = radial;
-  ctx.fill();
-
-  // 3. Double concentric status rings (Signature Blueprint)
-  // Outer Ring
-  ctx.beginPath();
-  ctx.arc(cx, cy, 230, 0, Math.PI * 2);
-  ctx.strokeStyle = ringColor;
-  ctx.lineWidth = 5.5;
-  ctx.shadowColor = glowColor;
-  ctx.shadowBlur = 18;
-  ctx.stroke();
-
-  // Inner Ring
-  ctx.beginPath();
-  ctx.arc(cx, cy, 196, 0, Math.PI * 2);
-  ctx.strokeStyle = ringColor;
-  ctx.lineWidth = 8.5;
-  ctx.shadowColor = glowColor;
-  ctx.shadowBlur = 24;
-  ctx.stroke();
-
-  // Concentric guideline between rings
-  ctx.beginPath();
-  ctx.arc(cx, cy, 213, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-  ctx.lineWidth = 1.5;
-  ctx.shadowBlur = 0;
-  ctx.stroke();
-  ctx.restore();
-
-  // 4. Center Vector Icons
-  ctx.save();
-  ctx.shadowColor = glowColor;
-  ctx.shadowBlur = 18;
-
-  const func = node.function;
-  const isCargo = isCargoNode(node.id) || func === 'Cargo' || func === 'Pick-up' || func === 'Drop-off';
-  const isCharge = func === 'Idle/Charge' || func === 'Charge' || node.name.includes('充電');
-  const isWait = func === 'Wait';
-
-  if (badge === 'start') {
-    // 起點標籤：Waving flag on pole
-    ctx.strokeStyle = '#10b981';
-    ctx.fillStyle = '#10b981';
-    ctx.lineWidth = 9;
-    ctx.lineCap = 'round';
-    // Pole
-    ctx.beginPath();
-    ctx.moveTo(cx - 30, cy + 68);
-    ctx.lineTo(cx - 30, cy - 68);
-    ctx.stroke();
-    // Banner
-    ctx.beginPath();
-    ctx.moveTo(cx - 30, cy - 68);
-    ctx.bezierCurveTo(cx - 5, cy - 80, cx + 25, cy - 58, cx + 58, cy - 68);
-    ctx.lineTo(cx + 58, cy - 14);
-    ctx.bezierCurveTo(cx + 25, cy - 4, cx - 5, cy - 24, cx - 30, cy - 14);
-    ctx.closePath();
-    ctx.fill();
-  } else if (badge === 'target') {
-    // 終點標籤：Bullseye target
-    ctx.strokeStyle = '#0ea5e9';
-    ctx.fillStyle = '#0ea5e9';
-    ctx.lineWidth = 7;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 68, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, 42, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, 16, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (isCharge) {
-    // 充電站：Horizontal rounded battery with terminal and lightning bolt
-    const bw = 155;
-    const bh = 92;
-    const rx = cx - bw / 2 - 8;
-    const ry = cy - bh / 2;
-    ctx.strokeStyle = iconColor;
-    ctx.lineWidth = 9;
-    ctx.beginPath();
-    ctx.roundRect(rx, ry, bw, bh, 18);
-    ctx.stroke();
-
-    // Positive terminal
-    ctx.fillStyle = iconColor;
-    ctx.beginPath();
-    ctx.roundRect(rx + bw + 4, cy - 22, 14, 44, 5);
-    ctx.fill();
-
-    // Lightning bolt in center
-    ctx.beginPath();
-    ctx.moveTo(cx + 6, cy - 30);
-    ctx.lineTo(cx - 24, cy + 4);
-    ctx.lineTo(cx - 3, cy + 4);
-    ctx.lineTo(cx - 14, cy + 30);
-    ctx.lineTo(cx + 26, cy - 4);
-    ctx.lineTo(cx + 5, cy - 4);
-    ctx.closePath();
-    ctx.fill();
-  } else if (isWait) {
-    // 等待點：Standard round clock face with hour & minute hands
-    ctx.strokeStyle = iconColor;
-    ctx.fillStyle = iconColor;
-    ctx.lineWidth = 9;
-    // Outer clock face
-    ctx.beginPath();
-    ctx.arc(cx, cy, 74, 0, Math.PI * 2);
-    ctx.stroke();
-    // Center pivot
-    ctx.beginPath();
-    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-    ctx.fill();
-    // Minute hand pointing to 12 o'clock
-    ctx.lineWidth = 8;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx, cy - 45);
-    ctx.stroke();
-    // Hour hand pointing to 3 o'clock
-    ctx.lineWidth = 9;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + 34, cy);
-    ctx.stroke();
-  } else if (isCargo) {
-    // 取貨站 / 放貨站：3D Isometric box with arrow UP (取貨) or DOWN (放貨)
-    const isPick = !node.has_cargo;
-    ctx.strokeStyle = iconColor;
-    ctx.fillStyle = iconColor;
-    ctx.lineWidth = 7.5;
-    ctx.lineJoin = 'round';
-
-    if (isPick) {
-      // 取貨站：Arrow pointing UP
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - 76);
-      ctx.lineTo(cx - 26, cy - 44);
-      ctx.lineTo(cx - 11, cy - 44);
-      ctx.lineTo(cx - 11, cy - 20);
-      ctx.lineTo(cx + 11, cy - 20);
-      ctx.lineTo(cx + 11, cy - 44);
-      ctx.lineTo(cx + 26, cy - 44);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // 放貨站：Arrow pointing DOWN into box
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - 18);
-      ctx.lineTo(cx - 26, cy - 50);
-      ctx.lineTo(cx - 11, cy - 50);
-      ctx.lineTo(cx - 11, cy - 76);
-      ctx.lineTo(cx + 11, cy - 76);
-      ctx.lineTo(cx + 11, cy - 50);
-      ctx.lineTo(cx + 26, cy - 50);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // 3D Isometric box
-    const boxY = cy + 22;
-    const s = 48;
-    // Top diamond
-    ctx.beginPath();
-    ctx.moveTo(cx, boxY - s);
-    ctx.lineTo(cx + s * 1.05, boxY - s * 0.45);
-    ctx.lineTo(cx, boxY + s * 0.1);
-    ctx.lineTo(cx - s * 1.05, boxY - s * 0.45);
-    ctx.closePath();
-    ctx.stroke();
-    // Left face
-    ctx.beginPath();
-    ctx.moveTo(cx - s * 1.05, boxY - s * 0.45);
-    ctx.lineTo(cx, boxY + s * 0.1);
-    ctx.lineTo(cx, boxY + s * 0.68);
-    ctx.lineTo(cx - s * 1.05, boxY + s * 0.12);
-    ctx.closePath();
-    ctx.stroke();
-    // Right face
-    ctx.beginPath();
-    ctx.moveTo(cx, boxY + s * 0.1);
-    ctx.lineTo(cx + s * 1.05, boxY - s * 0.45);
-    ctx.lineTo(cx + s * 1.05, boxY + s * 0.12);
-    ctx.lineTo(cx, boxY + s * 0.68);
-    ctx.closePath();
-    ctx.stroke();
-  } else {
-    // 交會點 (Transit)：Crossing shuffle arrows
-    ctx.strokeStyle = iconColor;
-    ctx.fillStyle = iconColor;
-    ctx.lineWidth = 9.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    // Top arrow: curves down then up-right
-    ctx.beginPath();
-    ctx.moveTo(cx - 58, cy - 34);
-    ctx.bezierCurveTo(cx - 20, cy - 34, cx + 10, cy + 34, cx + 44, cy + 34);
-    ctx.stroke();
-    // Arrow head for bottom-right
-    ctx.beginPath();
-    ctx.moveTo(cx + 28, cy + 18);
-    ctx.lineTo(cx + 58, cy + 34);
-    ctx.lineTo(cx + 28, cy + 50);
-    ctx.stroke();
-
-    // Bottom arrow: curves up then down-right
-    ctx.beginPath();
-    ctx.moveTo(cx - 58, cy + 34);
-    ctx.bezierCurveTo(cx - 20, cy + 34, cx + 10, cy - 34, cx + 44, cy - 34);
-    ctx.stroke();
-    // Arrow head for top-right
-    ctx.beginPath();
-    ctx.moveTo(cx + 28, cy - 50);
-    ctx.lineTo(cx + 58, cy - 34);
-    ctx.lineTo(cx + 28, cy - 18);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
 
 function getNodeStatus(nodeId: string): 'normal' | 'active' | 'waiting' | 'occupied' | 'fault' {
   const node = factoryLayout.nodes.find(n => n.id === nodeId);
@@ -4972,16 +4142,6 @@ async function handleCancelEdit() {
 // Item 1: Multi-Step Vehicle Mission Dispatch Helpers
 // ----------------------------------------------------
 
-function getActionLabel(action: DispatchAction): string {
-  switch (action) {
-    case 'none': return '移動';
-    case 'wait': return '等待';
-    case 'pick': return '取貨';
-    case 'drop': return '放貨';
-    case 'charge': return '充電';
-    default: return action;
-  }
-}
 
 function addNewDispatchStep() {
   const currentCount = quickDispatchSteps.value.length;
