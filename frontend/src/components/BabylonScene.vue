@@ -131,8 +131,6 @@ import {
 } from '../services/websocket';
 import type { LayoutNode, LayoutEdge, DispatchAction } from '../types';
 import {
-  getNodeFunctionLabel,
-  getNodeTypeDefaultDesc,
   isChargingNode as isChargingNodeUtil,
   isCargoNode as isCargoNodeUtil,
   getNodeObj as getNodeObjUtil,
@@ -192,12 +190,45 @@ import {
   type RotationWidgetState
 } from '../scene/editor/rotationWidget';
 import {
+  createSelectionState,
+  setupGizmoManager as setupGizmoManagerMod,
+  attachGizmoToTarget as attachGizmoToTargetMod,
+  highlightSelectedNode as highlightSelectedNodeMod,
+  highlightStartNode as highlightStartNodeMod,
+  clearNodeSelection as clearNodeSelectionMod,
+  type SelectionContext
+} from '../scene/editor/selection';
+import {
+  createEdgePreviewState,
+  disposeEdgePreviewMeshes as disposeEdgePreviewMeshesMod,
+  cancelEdgeConnection as cancelEdgeConnectionMod,
+  updateEdgeCreationPreview as updateEdgeCreationPreviewMod,
+  completeEdgeConnection as completeEdgeConnectionMod,
+  type EdgeConnectionContext
+} from '../scene/editor/edgePreview';
+import {
+  deleteNodeById as deleteNodeByIdMod,
+  deleteEdgeById as deleteEdgeByIdMod,
+  deletePropById as deletePropByIdMod,
+  handleSaveLayout as handleSaveLayoutMod,
+  handleResetLayout as handleResetLayoutMod,
+  resetToStandardTemplate as resetToStandardTemplateMod,
+  clearCanvasEntirely as clearCanvasEntirelyMod,
+  handleCancelEdit as handleCancelEditMod,
+  type LayoutCommandsContext
+} from '../scene/editor/layoutCommands';
+import {
+  setupInteractivePointerEvents as setupInteractivePointerEventsMod,
+  closeCargoContextMenu as closeCargoContextMenuMod,
+  setNodeCargoStatus as setNodeCargoStatusMod,
+  type PointerEventsContext
+} from '../scene/editor/pointerEvents';
+import {
   createGhostPadState,
   clearAlignmentGuideLines as clearAlignmentGuideLinesMod,
   updateAlignmentGuideLines as updateAlignmentGuideLinesMod,
   updateGhostPadVisual as updateGhostPadVisualMod,
-  hideGhostPlacementPad as hideGhostPlacementPadMod,
-  positionGhostPlacementPad
+  hideGhostPlacementPad as hideGhostPlacementPadMod
 } from '../scene/editor/ghostPad';
 
 const emit = defineEmits<{
@@ -285,16 +316,8 @@ const nodeTextureMap = new Map<string, { texture: BABYLON.DynamicTexture, plane:
 const edgeFirstNodeId = ref<string | null>(null);
 const hoveredNodeId = ref<string | null>(null);
 const edgeDirectionMode = ref<'oneway' | 'bidirectional'>('oneway');
-let rubberBandLine: BABYLON.LinesMesh | null = null;
-let nodeSelectionRing: BABYLON.Mesh | null = null;
-
-// High-Fidelity 3D Edge Preview System
-let previewEdgeTube: BABYLON.Mesh | null = null;
-let previewEdgeArrows: BABYLON.AbstractMesh[] = [];
-let previewTargetSnapRing: BABYLON.Mesh | null = null;
-let previewEndpointReticle: BABYLON.Mesh | null = null;
-let previewEdgeBadge: BABYLON.Mesh | null = null;
-let previewHoverStartRing: BABYLON.Mesh | null = null;
+const selectionState = createSelectionState();
+const edgePreviewState = createEdgePreviewState();
 
 // Edit Mode Selected Element Tracking & 90-Degree Stepped Rotation
 const selectedEditorNodeId = ref<string | null>(null);
@@ -631,8 +654,8 @@ onMounted(async () => {
             isSnapped = true;
             targetId = hoveredNodeId.value;
           }
-        } else if (previewEndpointReticle) {
-          endPoint = previewEndpointReticle.position.clone();
+        } else if (edgePreviewState.previewEndpointReticle) {
+          endPoint = edgePreviewState.previewEndpointReticle.position.clone();
         }
         if (endPoint) {
           updateEdgeCreationPreview(scene, startPoint, endPoint, isSnapped, targetId);
@@ -874,16 +897,16 @@ const sceneContext: SceneContext = {
   get alignmentMarkersMesh() { return ghostPadState.alignmentMarkersMesh; },
   set alignmentMarkersMesh(val) { ghostPadState.alignmentMarkersMesh = val; },
 
-  get previewConnectionLine() { return rubberBandLine; },
-  set previewConnectionLine(val) { rubberBandLine = val; },
-  get previewTargetSnapRing() { return previewTargetSnapRing; },
-  set previewTargetSnapRing(val) { previewTargetSnapRing = val; },
-  get previewTargetSnapDisc() { return previewEndpointReticle; },
-  set previewTargetSnapDisc(val) { previewEndpointReticle = val; },
-  get previewHoverStartRing() { return previewHoverStartRing; },
-  set previewHoverStartRing(val) { previewHoverStartRing = val; },
-  get previewArrowMeshes() { return previewEdgeArrows; },
-  set previewArrowMeshes(val) { previewEdgeArrows = val; },
+  get previewConnectionLine() { return edgePreviewState.rubberBandLine; },
+  set previewConnectionLine(val) { edgePreviewState.rubberBandLine = val; },
+  get previewTargetSnapRing() { return edgePreviewState.previewTargetSnapRing; },
+  set previewTargetSnapRing(val) { edgePreviewState.previewTargetSnapRing = val; },
+  get previewTargetSnapDisc() { return edgePreviewState.previewEndpointReticle; },
+  set previewTargetSnapDisc(val) { edgePreviewState.previewEndpointReticle = val; },
+  get previewHoverStartRing() { return edgePreviewState.previewHoverStartRing; },
+  set previewHoverStartRing(val) { edgePreviewState.previewHoverStartRing = val; },
+  get previewArrowMeshes() { return edgePreviewState.previewEdgeArrows; },
+  set previewArrowMeshes(val) { edgePreviewState.previewEdgeArrows = val; },
 
   get quickDispatchPreviewLine() { return quickDispatchPreviewLine; },
   set quickDispatchPreviewLine(val) { quickDispatchPreviewLine = val; },
@@ -1008,1158 +1031,171 @@ const loadAndRenderLayout = (sc: BABYLON.Scene) =>
   loadAndRenderLayoutMod(sc, layoutBuilderContext);
 
 // ----------------------------------------------------
-// Gizmo Setup & Layout Sync (Item 1: Strictly 2D Planar Ground Movement)
+// Scene Editor Contexts & Delegates (Selection, Preview, Commands, Pointer)
 // ----------------------------------------------------
-function setupGizmoManager(sc: BABYLON.Scene) {
-  gizmoManager = new BABYLON.GizmoManager(sc);
-  gizmoManager.positionGizmoEnabled = true;
-  gizmoManager.rotationGizmoEnabled = true;
-
-  let nodeDragStartPos = { x: 0, z: 0 };
-  let propDragStartPos = { x: 0, z: 0 };
-
-  if (gizmoManager.gizmos.positionGizmo) {
-    const pos = gizmoManager.gizmos.positionGizmo;
-    pos.planarGizmoEnabled = true;
-    if (pos.yGizmo) pos.yGizmo.isEnabled = false; // Strictly forbid Y-axis vertical translation!
-    if (pos.xPlaneGizmo) pos.xPlaneGizmo.isEnabled = false;
-    if (pos.zPlaneGizmo) pos.zPlaneGizmo.isEnabled = false;
-    if (pos.yPlaneGizmo) pos.yPlaneGizmo.isEnabled = true; // X-Z ground plane movement handle
-
-    pos.onDragStartObservable.add(() => {
-      const m = gizmoManager?.attachedMesh;
-      if (m && m.metadata?.type === 'node') {
-        const n = factoryLayout.nodes.find(p => p.id === m.metadata.id);
-        if (n) {
-          nodeDragStartPos = { x: n.x, z: n.z };
-        }
-      } else if (m && m.metadata?.type === 'prop') {
-        const prop = factoryLayout.props.find(p => p.id === m.metadata.id);
-        if (prop) {
-          propDragStartPos = { x: prop.x, z: prop.z };
-        }
-      }
-    });
-
-    pos.onDragObservable.add(() => {
-      const m = gizmoManager?.attachedMesh;
-      if (m && m.metadata?.type === 'node') {
-        m.position.y = 0.04;
-        const n = factoryLayout.nodes.find(item => item.id === m.metadata.id);
-        if (n) {
-          n.x = m.position.x;
-          n.z = m.position.z;
-          updateEdgesForNode(sc, n.id);
-        }
-      }
-    });
-
-    pos.onDragEndObservable.add(() => {
-      const m = gizmoManager?.attachedMesh;
-      if (m && m.metadata?.type === 'node') {
-        m.position.y = 0.04;
-        const candidateX = Math.round(m.position.x * 100) / 100;
-        const candidateZ = Math.round(m.position.z * 100) / 100;
-        const collision = checkObjectClearanceCollision(candidateX, candidateZ, m.metadata.id, MIN_CLEARANCE_DIST);
-        const n = factoryLayout.nodes.find(item => item.id === m.metadata.id);
-        if (collision.hasCollision && n) {
-          n.x = nodeDragStartPos.x;
-          n.z = nodeDragStartPos.z;
-          m.position.x = nodeDragStartPos.x;
-          m.position.z = nodeDragStartPos.z;
-          updateEdgesForNode(sc, n.id);
-          emit('notify', `⚠️ 物件重疊衝突：與 ${collision.conflictingWith} 間距過近 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，已自動復原至安全位置！`, 'warn');
-          return;
-        } else if (n) {
-          n.x = candidateX;
-          n.z = candidateZ;
-          m.position.x = candidateX;
-          m.position.z = candidateZ;
-          updateEdgesForNode(sc, n.id);
-          markLayoutDirty();
-        }
-      } else if (m && m.metadata?.type === 'prop') {
-        const prop = factoryLayout.props.find(p => p.id === m.metadata.id);
-        if (prop) {
-          const candidateX = Math.round(m.position.x * 100) / 100;
-          const candidateZ = Math.round(m.position.z * 100) / 100;
-          const collision = checkObjectClearanceCollision(candidateX, candidateZ, prop.id, MIN_CLEARANCE_DIST);
-          if (collision.hasCollision) {
-            // Revert!
-            m.position.x = propDragStartPos.x;
-            m.position.z = propDragStartPos.z;
-            prop.x = propDragStartPos.x;
-            prop.z = propDragStartPos.z;
-            emit('notify', `⚠️ 物件重疊衝突：與 ${collision.conflictingWith} 間距過近 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，已自動復原至安全位置！`, 'warn');
-            return;
-          }
-        }
-      }
-      syncGizmoTargetToLayout();
-      markLayoutDirty();
-    });
-  }
-
-  if (gizmoManager.gizmos.rotationGizmo) {
-    const rot = gizmoManager.gizmos.rotationGizmo;
-    if (rot.xGizmo) rot.xGizmo.isEnabled = false;
-    if (rot.zGizmo) rot.zGizmo.isEnabled = false;
-    if (rot.yGizmo) rot.yGizmo.isEnabled = true; // Allow Y rotation for props only
-
-    rot.onDragEndObservable.add(() => {
-      syncGizmoTargetToLayout();
-      markLayoutDirty();
-    });
-  }
-
-  // Detach initially
-  gizmoManager.attachToMesh(null);
-  gizmoManager.positionGizmoEnabled = false;
-  gizmoManager.rotationGizmoEnabled = false;
-}
-
-function attachGizmoToTarget(mesh: BABYLON.AbstractMesh | null) {
-  if (!gizmoManager) return;
-  if (!mesh || !mesh.metadata) {
-    gizmoManager.attachToMesh(null);
-    clearNodeSelection();
-    selectedEditorNodeId.value = null;
-    selectedEditorPropId.value = null;
-    return;
-  }
-
-  const meta = mesh.metadata;
-  if (meta.type === 'node') {
-    selectedEditorNodeId.value = meta.id;
-    selectedEditorPropId.value = null;
-    const targetNodeMesh = nodeMeshesMap.get(meta.id) || mesh;
-    highlightSelectedNode(scene!, targetNodeMesh);
-
-    // Requirement: No ugly gizmo arrows for nodes! Direct floor PointerDragBehavior is used.
-    gizmoManager.attachToMesh(null);
-    gizmoManager.rotationGizmoEnabled = false;
-    gizmoManager.positionGizmoEnabled = false;
-  } else if (meta.type === 'prop') {
-    clearNodeSelection();
-    selectedEditorPropId.value = meta.id;
-    selectedEditorNodeId.value = null;
-    const targetPropMesh = propMeshesMap.get(meta.id) || mesh;
-    gizmoManager.positionGizmoEnabled = true;
-    gizmoManager.rotationGizmoEnabled = true;
-    gizmoManager.attachToMesh(targetPropMesh);
-
-    if (gizmoManager.gizmos.positionGizmo) {
-      const pos = gizmoManager.gizmos.positionGizmo;
-      if (pos.yGizmo) pos.yGizmo.isEnabled = false;
-      pos.planarGizmoEnabled = true;
-      if (pos.xGizmo) pos.xGizmo.isEnabled = true;
-      if (pos.zGizmo) pos.zGizmo.isEnabled = true;
-      if (pos.xPlaneGizmo) pos.xPlaneGizmo.isEnabled = false;
-      if (pos.zPlaneGizmo) pos.zPlaneGizmo.isEnabled = false;
-      if (pos.yPlaneGizmo) pos.yPlaneGizmo.isEnabled = true;
-    }
-    if (gizmoManager.gizmos.rotationGizmo) {
-      const rot = gizmoManager.gizmos.rotationGizmo;
-      if (rot.xGizmo) rot.xGizmo.isEnabled = false;
-      if (rot.zGizmo) rot.zGizmo.isEnabled = false;
-      if (rot.yGizmo) rot.yGizmo.isEnabled = true;
-    }
-  }
-}
-
-function syncGizmoTargetToLayout() {
-  if (!gizmoManager || !gizmoManager.attachedMesh) return;
-  const m = gizmoManager.attachedMesh;
-  const meta = m.metadata;
-  if (!meta) return;
-
-  if (meta.type === 'node') {
-    m.position.y = 0.04;
-    const node = factoryLayout.nodes.find(n => n.id === meta.id);
-    if (node) {
-      node.x = Math.round(m.position.x * 100) / 100;
-      node.z = Math.round(m.position.z * 100) / 100;
-      node.y = 0;
-      rebuildEdgesOnly(scene!);
-    }
-  } else if (meta.type === 'prop') {
-    const prop = factoryLayout.props.find(p => p.id === meta.id);
-    if (prop) {
-      prop.x = Math.round(m.position.x * 100) / 100;
-      prop.z = Math.round(m.position.z * 100) / 100;
-      if (m.rotationQuaternion) {
-        prop.rotationY = Math.round(m.rotationQuaternion.toEulerAngles().y * 100) / 100;
-      } else {
-        prop.rotationY = Math.round(m.rotation.y * 100) / 100;
-      }
-    }
-  }
-}
-
-
-
-// ----------------------------------------------------
-// Problem 2: Rubber-band Connection & Pointer Events
-// ----------------------------------------------------
-function setupInteractivePointerEvents(sc: BABYLON.Scene) {
-  sc.onPointerObservable.add((pointerInfo) => {
-    // Requirement 5: Global Right-click handling for station cargo status editing
-    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
-      const evt = pointerInfo.event as MouseEvent;
-      if (evt && evt.button === 2) {
-        handleRightClick(sc, pointerInfo);
-        return;
-      }
-      if (cargoContextMenu.value.visible) {
-        closeCargoContextMenu();
-      }
-    }
-
-    // 1. Simulation Mode: Interactive 3D Vehicle & Node Dispatch
-    if (currentAppMode.value === 'simulate') {
-      if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
-        const pick = pointerInfo.pickInfo;
-        if (pick && pick.hit && pick.pickedMesh) {
-          const type = pick.pickedMesh.metadata?.type;
-          if (type === 'agv' || type === 'node' || resolvePickedNodeFromPointer(sc, pick)) {
-            sc.defaultCursor = 'pointer';
-            return;
-          }
-        }
-        sc.defaultCursor = 'default';
-        return;
-      }
-
-      if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
-        const pick = pointerInfo.pickInfo;
-        if (!pick || !pick.hit || !pick.pickedMesh) {
-          return;
-        }
-
-        // Quick Dispatch in 3D: if user has already activated quick dispatch, prioritize selecting destination node!
-        if (is3DQuickDispatchActive.value) {
-          const targetNodeId = resolvePickedNodeFromPointer(sc, pick);
-          const currVehNode = fleetVehicles[selectedVehicleId.value]?.task_info?.current_node;
-          if (targetNodeId && targetNodeId !== currVehNode) {
-            const padMesh = nodeMeshesMap.get(targetNodeId) || pick.pickedMesh;
-            triggerNodeTargetRipple(sc, padMesh);
-            addOrSelectNodeFromMap(targetNodeId);
-            updateQuickDispatchPreviewLine(sc);
-            const nodeObj = factoryLayout.nodes.find(n => n.id === targetNodeId);
-            emit('notify', `已加入站點: ${targetNodeId} (${nodeObj?.name || ''}) - ${getNodeFunctionLabel(nodeObj?.function || '')}`, 'info');
-            return;
-          }
-        }
-
-        // A. Clicked AGV Vehicle directly in 3D!
-        if (pick.pickedMesh.metadata?.type === 'agv') {
-          const vId = pick.pickedMesh.metadata.id || 'AGV-001';
-          selectedVehicleId.value = vId;
-          selectVehicle(vId);
-          dashboardActiveTab.value = 'vehicle';
-          is3DQuickDispatchActive.value = true;
-          resetDispatchSteps();
-          setCameraView('follow');
-          for (const [id, visual] of vehicleVisuals.entries()) {
-            if (visual.haloMesh) visual.haloMesh.isVisible = (vId === id);
-          }
-          updateQuickDispatchPreviewLine(sc);
-          emit('notify', `已鎖定車輛 ${selectedVehicleId.value}`, 'info');
-          return;
-        }
-
-        // B. Clicked Node directly in 3D!
-        const clickedNodeId = resolvePickedNodeFromPointer(sc, pick);
-        if (clickedNodeId) {
-          const padMesh = nodeMeshesMap.get(clickedNodeId) || pick.pickedMesh;
-          triggerNodeTargetRipple(sc, padMesh);
-
-          if (is3DQuickDispatchActive.value) {
-            addOrSelectNodeFromMap(clickedNodeId);
-            updateQuickDispatchPreviewLine(sc);
-            const nodeObj = factoryLayout.nodes.find(n => n.id === clickedNodeId);
-            emit('notify', `已加入站點: ${clickedNodeId} (${nodeObj?.name || ''}) - ${getNodeFunctionLabel(nodeObj?.function || '')}`, 'info');
-          } else {
-            const nodeObj = factoryLayout.nodes.find(n => n.id === clickedNodeId);
-            emit('notify', `站點資訊: ${clickedNodeId} (${nodeObj?.name || ''}) - ${getNodeFunctionLabel(nodeObj?.function || '')}`, 'info');
-          }
-          return;
-        }
-      }
-      return;
-    }
-
-    // 2. Edit Mode: Tool interactions
-    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
-      handlePointerMoveInEditMode(sc, pointerInfo);
-    } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
-      handlePointerDownInEditMode(sc, pointerInfo);
-    } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERUP) {
-      handlePointerUpInEditMode(sc, pointerInfo);
-    }
-  });
-}
-
-// ----------------------------------------------------
-// Requirement 5: Station Cargo Context Menu Handlers
-// ----------------------------------------------------
-function handleRightClick(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
-  const pick = pointerInfo.pickInfo;
-  const evt = pointerInfo.event as MouseEvent;
-
-  if (!pick || !pick.hit || !pick.pickedMesh) {
-    closeCargoContextMenu();
-    return;
-  }
-
-  const pickedNodeId = resolvePickedNodeFromPointer(sc, pick);
-  if (pickedNodeId) {
-    const node = factoryLayout.nodes.find(n => n.id === pickedNodeId);
-    if (node) {
-      if (isCargoNode(node.id)) {
-        openCargoContextMenu(evt, node);
-        return;
-      } else {
-        closeCargoContextMenu();
-        emit('notify', `站點 ${node.id} (${getNodeFunctionLabel(node.function)}) 非貨物站，無法編輯貨物狀態`, 'info');
-        return;
-      }
-    }
-  }
-  closeCargoContextMenu();
-}
-
-function openCargoContextMenu(evt: MouseEvent, node: LayoutNode) {
-  const menuWidth = 180;
-  const menuHeight = 110;
-  let x = evt.clientX;
-  let y = evt.clientY;
-
-  if (x + menuWidth > window.innerWidth) {
-    x = window.innerWidth - menuWidth - 12;
-  }
-  if (y + menuHeight > window.innerHeight) {
-    y = window.innerHeight - menuHeight - 12;
-  }
-
-  cargoContextMenu.value = {
-    visible: true,
-    x,
-    y,
-    node
-  };
-}
-
-function closeCargoContextMenu() {
-  cargoContextMenu.value.visible = false;
-  cargoContextMenu.value.node = null;
-}
-
-async function setNodeCargoStatus(node: LayoutNode, hasCargo: boolean) {
-  await toggleStationCargo(node, hasCargo);
-  closeCargoContextMenu();
-}
-
-function triggerNodeTargetRipple(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
-  const ripple = BABYLON.MeshBuilder.CreateTorus('Ripple', { diameter: 1.6, thickness: 0.05, tessellation: 32 }, sc);
-  ripple.position.copyFrom(nodeMesh.position);
-  ripple.position.y += 0.02;
-
-  const mat = new BABYLON.StandardMaterial('RippleMat', sc);
-  mat.emissiveColor = new BABYLON.Color3(0.2, 0.9, 1.0);
-  mat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-  ripple.material = mat;
-
-  BABYLON.Animation.CreateAndStartAnimation(
-    'rippleScale',
-    ripple,
-    'scaling',
-    30,
-    18,
-    new BABYLON.Vector3(1, 1, 1),
-    new BABYLON.Vector3(1.5, 1.5, 1.5),
-    BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-  );
-
-  setTimeout(() => {
-    ripple.dispose();
-  }, 600);
-}
-
-// ----------------------------------------------------
-// High-Fidelity 3D Edge Preview System
-// ----------------------------------------------------
-function disposeEdgePreviewMeshes(includeStartRing = true) {
-  if (previewEdgeTube) {
-    if (previewEdgeTube.material) previewEdgeTube.material.dispose();
-    previewEdgeTube.dispose();
-    previewEdgeTube = null;
-  }
-  if (rubberBandLine) {
-    rubberBandLine.dispose();
-    rubberBandLine = null;
-  }
-  previewEdgeArrows.forEach(a => {
-    if (a.material) a.material.dispose();
-    a.dispose();
-  });
-  previewEdgeArrows = [];
-  if (previewTargetSnapRing) {
-    if (previewTargetSnapRing.material) previewTargetSnapRing.material.dispose();
-    previewTargetSnapRing.dispose();
-    previewTargetSnapRing = null;
-  }
-  if (previewEndpointReticle) {
-    if (previewEndpointReticle.material) previewEndpointReticle.material.dispose();
-    previewEndpointReticle.dispose();
-    previewEndpointReticle = null;
-  }
-  if (previewEdgeBadge) {
-    const mat = previewEdgeBadge.material as BABYLON.StandardMaterial | null;
-    if (mat) {
-      if (mat.diffuseTexture) mat.diffuseTexture.dispose();
-      mat.dispose();
-    }
-    previewEdgeBadge.dispose();
-    previewEdgeBadge = null;
-  }
-  if (previewHoverStartRing) {
-    if (previewHoverStartRing.material) previewHoverStartRing.material.dispose();
-    previewHoverStartRing.dispose();
-    previewHoverStartRing = null;
-  }
-  if (includeStartRing) {
-    clearNodeSelection();
-  }
-}
-
-function updateEdgeCreationPreview(
-  sc: BABYLON.Scene,
-  startPoint: BABYLON.Vector3,
-  endPoint: BABYLON.Vector3,
-  isSnapped: boolean,
-  targetNodeId: string | null
-) {
-  const dist = BABYLON.Vector3.Distance(startPoint, endPoint);
-  if (dist < 0.08) {
-    disposeEdgePreviewMeshes(false);
-    return;
-  }
-
-  const dx = endPoint.x - startPoint.x;
-  const dz = endPoint.z - startPoint.z;
-  const forwardTheta = Math.atan2(dx, dz);
-  const midPoint = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.5);
-  midPoint.y = 0.05;
-
-  const isBidir = (edgeDirectionMode.value === 'bidirectional');
-
-  // Palette: Snapped is Emerald Green (#10b981), Floating is Electric Cyan / Amber
-  const previewColor = isSnapped
-    ? new BABYLON.Color3(0.06, 0.95, 0.55)
-    : (isBidir ? new BABYLON.Color3(0.06, 0.85, 1.0) : new BABYLON.Color3(0.98, 0.65, 0.08));
-
-  // 1. 3D Volumetric Path Tube
-  if (previewEdgeTube) {
-    previewEdgeTube.dispose();
-    previewEdgeTube = null;
-  }
-  previewEdgeTube = BABYLON.MeshBuilder.CreateTube('PreviewEdgeTube', {
-    path: [startPoint, endPoint],
-    radius: 0.038,
-    sideOrientation: BABYLON.Mesh.DOUBLESIDE
-  }, sc);
-  previewEdgeTube.isPickable = false;
-
-  const tubeMat = new BABYLON.StandardMaterial('PreviewEdgeTubeMat', sc);
-  tubeMat.diffuseColor = previewColor;
-  tubeMat.emissiveColor = previewColor.scale(0.85);
-  tubeMat.alpha = 0.88;
-  previewEdgeTube.material = tubeMat;
-
-  // 2. High-contrast Dashed Line Core
-  if (rubberBandLine) {
-    rubberBandLine.dispose();
-    rubberBandLine = null;
-  }
-  rubberBandLine = BABYLON.MeshBuilder.CreateDashedLines('RubberBandPreview', {
-    points: [
-      new BABYLON.Vector3(startPoint.x, 0.065, startPoint.z),
-      new BABYLON.Vector3(endPoint.x, 0.065, endPoint.z)
-    ],
-    dashSize: 0.35,
-    gapSize: 0.20,
-    dashNb: Math.max(6, Math.floor(dist * 3))
-  }, sc);
-  rubberBandLine.color = new BABYLON.Color3(1, 1, 1);
-  rubberBandLine.isPickable = false;
-
-  // 3. Directional Arrows
-  previewEdgeArrows.forEach(a => {
-    if (a.material) a.material.dispose();
-    a.dispose();
-  });
-  previewEdgeArrows = [];
-
-  const arrowMat = new BABYLON.StandardMaterial('PreviewArrowMat', sc);
-  if (isBidir) {
-    arrowMat.diffuseColor = new BABYLON.Color3(0.0, 0.85, 0.70);
-    arrowMat.emissiveColor = new BABYLON.Color3(0.0, 0.96, 0.82);
-  } else {
-    arrowMat.diffuseColor = new BABYLON.Color3(0.95, 0.55, 0.05);
-    arrowMat.emissiveColor = new BABYLON.Color3(1.0, 0.65, 0.08);
-  }
-  arrowMat.alpha = 0.95;
-
-  if (isBidir) {
-    const p1 = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.38);
-    const arrow1 = BABYLON.MeshBuilder.CreateCylinder('PreviewArr1', {
-      diameterTop: 0,
-      diameterBottom: 0.35,
-      height: 0.48,
-      tessellation: 3
-    }, sc);
-    arrow1.position.set(p1.x, 0.06, p1.z);
-    arrow1.rotation.x = Math.PI / 2;
-    arrow1.rotation.y = forwardTheta;
-    arrow1.material = arrowMat;
-    arrow1.isPickable = false;
-    previewEdgeArrows.push(arrow1);
-
-    const p2 = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.62);
-    const arrow2 = BABYLON.MeshBuilder.CreateCylinder('PreviewArr2', {
-      diameterTop: 0,
-      diameterBottom: 0.35,
-      height: 0.48,
-      tessellation: 3
-    }, sc);
-    arrow2.position.set(p2.x, 0.06, p2.z);
-    arrow2.rotation.x = Math.PI / 2;
-    arrow2.rotation.y = forwardTheta + Math.PI;
-    arrow2.material = arrowMat;
-    arrow2.isPickable = false;
-    previewEdgeArrows.push(arrow2);
-  } else {
-    const pMid = BABYLON.Vector3.Lerp(startPoint, endPoint, 0.50);
-    const arrow = BABYLON.MeshBuilder.CreateCylinder('PreviewArr', {
-      diameterTop: 0,
-      diameterBottom: 0.35,
-      height: 0.48,
-      tessellation: 3
-    }, sc);
-    arrow.position.set(pMid.x, 0.06, pMid.z);
-    arrow.rotation.x = Math.PI / 2;
-    arrow.rotation.y = forwardTheta;
-    arrow.material = arrowMat;
-    arrow.isPickable = false;
-    previewEdgeArrows.push(arrow);
-  }
-
-  // 4. Snapped Target Node Halo vs Floating Endpoint Reticle
-  if (isSnapped && targetNodeId) {
-    if (previewEndpointReticle) {
-      previewEndpointReticle.dispose();
-      previewEndpointReticle = null;
-    }
-    if (!previewTargetSnapRing) {
-      previewTargetSnapRing = BABYLON.MeshBuilder.CreateTorus('PreviewTargetSnapRing', {
-        diameter: 0.95,
-        thickness: 0.035,
-        tessellation: 32
-      }, sc);
-      const snapMat = new BABYLON.StandardMaterial('TargetSnapMat', sc);
-      snapMat.diffuseColor = new BABYLON.Color3(0.06, 0.95, 0.55);
-      snapMat.emissiveColor = new BABYLON.Color3(0.2, 1.0, 0.6);
-      previewTargetSnapRing.material = snapMat;
-      previewTargetSnapRing.isPickable = false;
-    }
-    previewTargetSnapRing.position.set(endPoint.x, 0.045, endPoint.z);
-    previewTargetSnapRing.setEnabled(true);
-  } else {
-    if (previewTargetSnapRing) {
-      previewTargetSnapRing.dispose();
-      previewTargetSnapRing = null;
-    }
-    if (!previewEndpointReticle) {
-      previewEndpointReticle = BABYLON.MeshBuilder.CreateDisc('PreviewEndpointReticle', {
-        radius: 0.20,
-        tessellation: 24
-      }, sc);
-      previewEndpointReticle.rotation.x = Math.PI / 2;
-      const reticleMat = new BABYLON.StandardMaterial('ReticleMat', sc);
-      reticleMat.diffuseColor = previewColor;
-      reticleMat.emissiveColor = previewColor;
-      reticleMat.alpha = 0.65;
-      previewEndpointReticle.material = reticleMat;
-      previewEndpointReticle.isPickable = false;
-    }
-    previewEndpointReticle.position.set(endPoint.x, 0.045, endPoint.z);
-    previewEndpointReticle.setEnabled(true);
-  }
-
-  // Remove redundant floating distance badge on path as requested
-  if (previewEdgeBadge) {
-    previewEdgeBadge.dispose();
-    previewEdgeBadge = null;
-  }
-}
-
-function completeEdgeConnection(sc: BABYLON.Scene, startId: string, endId: string) {
-  cancelEdgeConnection();
-
-  const isBidir = (edgeDirectionMode.value === 'bidirectional');
-
-  // Check if edge already exists between these two nodes in EITHER direction
-  const existingIdx = factoryLayout.edges.findIndex(e => 
-    (e.startNodeId === startId && e.endNodeId === endId) ||
-    (e.startNodeId === endId && e.endNodeId === startId)
-  );
-
-  if (existingIdx >= 0) {
-    const existingEdge = factoryLayout.edges[existingIdx];
-    
-    const oldMesh = edgeMeshesMap.get(existingEdge.id);
-    if (oldMesh) {
-      oldMesh.dispose();
-      edgeMeshesMap.delete(existingEdge.id);
-    }
-    const oldArrows = edgeArrowMeshesMap.get(existingEdge.id);
-    if (oldArrows) {
-      oldArrows.forEach(a => a.dispose());
-      edgeArrowMeshesMap.delete(existingEdge.id);
-    }
-
-    existingEdge.startNodeId = startId;
-    existingEdge.endNodeId = endId;
-    existingEdge.bidirectional = isBidir;
-
-    createEdgeInScene(sc, existingEdge);
-    updateDynamicPathMaterials();
-    markLayoutDirty();
-    emit('notify', `已更新路徑: ${startId} ${isBidir ? '⇄' : '➔'} ${endId} (${isBidir ? '雙向' : '單向'})`, 'success');
-  } else {
-    const edgeId = `Edge-${startId.replace('Node-', '')}-${endId.replace('Node-', '')}`;
-    const newEdge: LayoutEdge = {
-      id: edgeId,
-      startNodeId: startId,
-      endNodeId: endId,
-      bidirectional: isBidir
-    };
-    factoryLayout.edges.push(newEdge);
-    createEdgeInScene(sc, newEdge);
-    updateDynamicPathMaterials();
-    markLayoutDirty();
-    emit('notify', `已建立路徑: ${startId} ${isBidir ? '⇄' : '➔'} ${endId} (${isBidir ? '雙向' : '單向'})`, 'success');
-  }
-}
-
-function handlePointerUpInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
-  const tool = currentEditorTool.value;
-  if (tool === 'add_edge' && edgeFirstNodeId.value) {
-    const targetId = hoveredNodeId.value || resolvePickedNodeFromPointer(sc, pointerInfo.pickInfo);
-    if (targetId && targetId !== edgeFirstNodeId.value) {
-      completeEdgeConnection(sc, edgeFirstNodeId.value, targetId);
-    }
-  }
-}
-
-function handlePointerMoveInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
-  const tool = currentEditorTool.value;
-
-  if (tool === 'add_node') {
-    if (rubberBandLine) {
-      rubberBandLine.dispose();
-      rubberBandLine = null;
-    }
-    hoveredNodeId.value = null;
-    updateGhostPadVisual(sc, newNodeFunction.value);
-
-    // Compute exact ground intersection using camera picking ray
-    const ray = sc.createPickingRay(sc.pointerX, sc.pointerY, BABYLON.Matrix.Identity(), camera || sc.activeCamera);
-    let floorPoint: BABYLON.Vector3 | null = null;
-    if (ray && Math.abs(ray.direction.y) > 0.0001) {
-      const t = (0.04 - ray.origin.y) / ray.direction.y;
-      if (t > 0) {
-        floorPoint = ray.origin.add(ray.direction.scale(t));
-      }
-    }
-
-    if (floorPoint && ghostPadState.ghostPlacementPad) {
-      const snap = computeSmartSnap(floorPoint.x, floorPoint.z);
-      positionGhostPlacementPad(ghostPadState, snap.snappedX, snap.snappedZ);
-      sc.defaultCursor = 'crosshair';
-    } else {
-      hideGhostPlacementPad();
-    }
-    return;
-  }
-
-  // Hide ghost pad if not in add_node mode
-  hideGhostPlacementPad();
-
-  if (tool === 'select') {
-    const pickedMesh = pointerInfo.pickInfo?.pickedMesh;
-    const isRotateMesh = (
-      pickedMesh?.metadata?.type === 'rotate_action' ||
-      pickedMesh?.metadata?.type === 'rotate_handle' ||
-      pickedMesh?.name?.startsWith('BtnDir_') ||
-      pickedMesh?.name?.startsWith('BtnTurn_')
-    );
-    if (isRotateMesh) {
-      sc.defaultCursor = 'pointer';
-      return;
-    }
-  }
-
-  if (tool === 'add_edge' && !edgeFirstNodeId.value) {
-    disposeEdgePreviewMeshes(false);
-    
-    // Check if hovering over any node to highlight as candidate start
-    const hoverNodeId = resolvePickedNodeFromPointer(sc, pointerInfo.pickInfo);
-    if (hoverNodeId) {
-      const node = factoryLayout.nodes.find(n => n.id === hoverNodeId);
-      if (node) {
-        sc.defaultCursor = 'pointer';
-        if (!previewHoverStartRing) {
-          previewHoverStartRing = BABYLON.MeshBuilder.CreateTorus('PreviewHoverStartRing', {
-            diameter: 0.88,
-            thickness: 0.025,
-            tessellation: 32
-          }, sc);
-          const mat = new BABYLON.StandardMaterial('HoverStartMat', sc);
-          mat.diffuseColor = new BABYLON.Color3(0.06, 0.75, 1.0);
-          mat.emissiveColor = new BABYLON.Color3(0.06, 0.85, 1.0);
-          previewHoverStartRing.material = mat;
-          previewHoverStartRing.isPickable = false;
-        }
-        previewHoverStartRing.position.set(node.x, 0.045, node.z);
-        previewHoverStartRing.setEnabled(true);
-        return;
-      }
-    }
-    if (previewHoverStartRing) {
-      previewHoverStartRing.setEnabled(false);
-    }
-    sc.defaultCursor = 'crosshair';
-    return;
-  }
-
-  if (tool === 'add_edge' && edgeFirstNodeId.value) {
-    if (previewHoverStartRing) {
-      previewHoverStartRing.setEnabled(false);
-    }
-    const startNode = factoryLayout.nodes.find(n => n.id === edgeFirstNodeId.value);
-    if (!startNode) return;
-
-    // Robust raycast onto ground plane y = 0.05
-    const ray = sc.createPickingRay(sc.pointerX, sc.pointerY, BABYLON.Matrix.Identity(), camera || sc.activeCamera);
-    let groundPoint: BABYLON.Vector3 | null = null;
-    if (ray && Math.abs(ray.direction.y) > 0.0001) {
-      const t = (0.05 - ray.origin.y) / ray.direction.y;
-      if (t > 0) {
-        groundPoint = ray.origin.add(ray.direction.scale(t));
-      }
-    }
-    if (!groundPoint && pointerInfo.pickInfo?.pickedPoint) {
-      groundPoint = pointerInfo.pickInfo.pickedPoint.clone();
-      groundPoint.y = 0.05;
-    }
-    if (!groundPoint) return;
-
-    // Check target node: direct pointer pick or magnetic snapping within 1.25m
-    let targetId = resolvePickedNodeFromPointer(sc, pointerInfo.pickInfo);
-    if (targetId === edgeFirstNodeId.value) {
-      targetId = null;
-    }
-
-    if (!targetId && groundPoint) {
-      let closestDist = 1.25;
-      for (const node of factoryLayout.nodes) {
-        if (node.id === edgeFirstNodeId.value) continue;
-        const d = Math.hypot(node.x - groundPoint.x, node.z - groundPoint.z);
-        if (d < closestDist) {
-          closestDist = d;
-          targetId = node.id;
-        }
-      }
-    }
-
-    const startPoint = new BABYLON.Vector3(startNode.x, 0.05, startNode.z);
-    let endPoint: BABYLON.Vector3;
-    let isSnapped = false;
-
-    if (targetId) {
-      const targetNode = factoryLayout.nodes.find(n => n.id === targetId);
-      if (targetNode) {
-        endPoint = new BABYLON.Vector3(targetNode.x, 0.05, targetNode.z);
-        hoveredNodeId.value = targetId;
-        sc.defaultCursor = 'pointer';
-        isSnapped = true;
-      } else {
-        endPoint = groundPoint;
-        hoveredNodeId.value = null;
-        sc.defaultCursor = 'crosshair';
-      }
-    } else {
-      endPoint = groundPoint;
-      hoveredNodeId.value = null;
-      sc.defaultCursor = 'crosshair';
-    }
-
-    updateEdgeCreationPreview(sc, startPoint, endPoint, isSnapped, targetId);
-    return;
-  }
-
-  // Not in add_edge tool
-  disposeEdgePreviewMeshes(false);
-}
-
-function handlePointerDownInEditMode(sc: BABYLON.Scene, pointerInfo: BABYLON.PointerInfo) {
-  const tool = currentEditorTool.value;
-  const pickResult = pointerInfo.pickInfo;
-  const pickedMesh = pickResult?.pickedMesh;
-
-  if (tool === 'select') {
-    if (!pickResult || !pickResult.hit) return;
-
-    // Check if clicked directly on 3D rotation action buttons (上下左右 / 左轉右轉)
-    const isRotateAction = (
-      pickedMesh?.metadata?.type === 'rotate_action' ||
-      pickedMesh?.metadata?.type === 'rotate_handle' ||
-      pickedMesh?.name?.startsWith('BtnDir_') ||
-      pickedMesh?.name?.startsWith('BtnTurn_')
-    );
-    if (isRotateAction) {
-      const meta = pickedMesh?.metadata;
-      const targetId = meta?.id || selectedEditorNodeId.value;
-      if (targetId) {
-        if (meta?.action === 'set') {
-          setNodeHeading(targetId, meta.deg);
-        } else {
-          rotateNode(targetId, meta?.deg || 90);
-        }
-      }
-      return;
-    }
-
-    const pickedNodeId = resolvePickedNodeFromPointer(sc, pickResult);
-    if (pickedNodeId) {
-      selectedEditorNodeId.value = pickedNodeId;
-      selectedEditorPropId.value = null;
-      const padMesh = nodeMeshesMap.get(pickedNodeId);
-      if (padMesh) {
-        attachGizmoToTarget(padMesh);
-        highlightSelectedNode(sc, padMesh);
-      }
-    } else if (pickedMesh?.metadata?.type === 'prop') {
-      selectedEditorPropId.value = pickedMesh.metadata.id;
-      selectedEditorNodeId.value = null;
-      attachGizmoToTarget(pickedMesh);
-      clearNodeSelection();
-    } else {
-      selectedEditorNodeId.value = null;
-      selectedEditorPropId.value = null;
-      attachGizmoToTarget(null);
-      clearNodeSelection();
-    }
-  } else if (tool === 'add_node') {
-    let point = pickResult?.pickedPoint;
-    if (!point) {
-      const ray = sc.createPickingRay(sc.pointerX, sc.pointerY, BABYLON.Matrix.Identity(), camera || sc.activeCamera);
-      if (ray && Math.abs(ray.direction.y) > 0.0001) {
-        const t = (0.04 - ray.origin.y) / ray.direction.y;
-        if (t > 0) {
-          point = ray.origin.add(ray.direction.scale(t));
-        }
-      }
-    }
-    if (point) {
-      const snap = computeSmartSnap(point.x, point.z);
-      const targetX = snap.snappedX;
-      const targetZ = snap.snappedZ;
-      const collision = checkObjectClearanceCollision(targetX, targetZ, undefined, MIN_CLEARANCE_DIST);
-      if (collision.hasCollision) {
-        emit('notify', `⚠️ 無法在此放置站點：與 ${collision.conflictingWith} 重疊 (${collision.distance?.toFixed(2)}m < ${MIN_CLEARANCE_DIST}m)，請保持安全間距！`, 'warn');
-        return;
-      }
-
-      // Monotonic ID generation: find highest numeric suffix to prevent collision after deletions
-      let maxNum = 0;
-      for (const n of factoryLayout.nodes) {
-        const m = n.id.match(/^Node-(\d+)$/);
-        if (m) {
-          const val = parseInt(m[1], 10);
-          if (val > maxNum) maxNum = val;
-        }
-      }
-      const newId = `Node-${String(maxNum + 1).padStart(2, '0')}`;
-      const func = newNodeFunction.value;
-      const typeLabel = getNodeFunctionLabel(func);
-
-      const newNode: LayoutNode = {
-        id: newId,
-        name: `${typeLabel} ${newId}`,
-        x: targetX,
-        y: 0,
-        z: targetZ,
-        function: func,
-        description: getNodeTypeDefaultDesc(func),
-        has_cargo: false // 預設為無貨物狀態
-      };
-      factoryLayout.nodes.push(newNode);
-      createNodeInScene(sc, newNode);
-
-      hideGhostPlacementPad();
-      clearAlignmentGuideLines();
-      markLayoutDirty();
-      emit('notify', `已新增 ${typeLabel}: ${newId}`, 'success');
-    }
-  } else if (tool === 'add_edge') {
-    const pickedNodeId = resolvePickedNodeFromPointer(sc, pickResult);
-    if (pickedNodeId) {
-      const nodeId = pickedNodeId;
-
-      if (!edgeFirstNodeId.value) {
-        // Step 1: Select start node
-        edgeFirstNodeId.value = nodeId;
-        const nodeMesh = nodeMeshesMap.get(nodeId) || pickedMesh;
-        if (nodeMesh) highlightStartNode(sc, nodeMesh);
-        emit('notify', `已選取起點: ${nodeId}，請拖曳預覽線並點擊目標節點`, 'info');
-      } else if (edgeFirstNodeId.value === nodeId) {
-        emit('notify', '起點與終點不能為同一節點', 'warn');
-      } else {
-        // Step 2: Connect to end node
-        completeEdgeConnection(sc, edgeFirstNodeId.value, nodeId);
-      }
-    } else {
-      cancelEdgeConnection();
-    }
-  } else if (tool === 'delete') {
-    const pickedNodeId = resolvePickedNodeFromPointer(sc, pickResult);
-    if (pickedNodeId) {
-      deleteNodeById(pickedNodeId);
-      return;
-    }
-    if (pickedMesh && pickedMesh.metadata) {
-      const meta = pickedMesh.metadata;
-      if (meta.type === 'edge') {
-        deleteEdgeById(meta.id);
-      } else if (meta.type === 'prop') {
-        deletePropById(meta.id);
-      }
-    }
-  }
-}
-
-function deleteNodeById(nodeId: string) {
-  if (!scene) return;
-  const node = factoryLayout.nodes.find(n => n.id === nodeId);
-  if (!node) return;
-
-  factoryLayout.nodes = factoryLayout.nodes.filter(n => n.id !== nodeId);
-  factoryLayout.edges = factoryLayout.edges.filter(e => e.startNodeId !== nodeId && e.endNodeId !== nodeId);
-
-  const padMesh = nodeMeshesMap.get(nodeId);
-  if (padMesh) {
-    padMesh.dispose();
-    nodeMeshesMap.delete(nodeId);
-    nodeTextureMap.delete(nodeId);
-  }
-  const pallet = stationPalletMap.get(nodeId);
-  if (pallet) {
-    pallet.dispose();
-    stationPalletMap.delete(nodeId);
-  }
-  const cargo = stationCargoMap.get(nodeId);
-  if (cargo) {
-    cargo.dispose();
-    stationCargoMap.delete(nodeId);
-  }
-
-  rebuildEdgesOnly(scene);
-  gizmoManager?.attachToMesh(null);
-  clearNodeSelection();
-  markLayoutDirty();
-  emit('notify', `已刪除節點: ${nodeId}`, 'info');
-}
-
-function deleteEdgeById(edgeId: string) {
-  if (!scene) return;
-  factoryLayout.edges = factoryLayout.edges.filter(e => e.id !== edgeId);
-  const oldMesh = edgeMeshesMap.get(edgeId);
-  if (oldMesh) {
-    if (oldMesh.material) oldMesh.material.dispose();
-    oldMesh.dispose();
-    edgeMeshesMap.delete(edgeId);
-  }
-  const arrows = edgeArrowMeshesMap.get(edgeId);
-  if (arrows) {
-    arrows.forEach(a => a.dispose());
-    edgeArrowMeshesMap.delete(edgeId);
-  }
-  markLayoutDirty();
-  emit('notify', `已刪除路徑: ${edgeId}`, 'info');
-}
-
-function deletePropById(propId: string) {
-  factoryLayout.props = factoryLayout.props.filter(p => p.id !== propId);
-  const pMesh = propMeshesMap.get(propId);
-  if (pMesh) {
-    pMesh.dispose();
-    propMeshesMap.delete(propId);
-  }
-  gizmoManager?.attachToMesh(null);
-  markLayoutDirty();
-  emit('notify', `已刪除物件: ${propId}`, 'info');
-}
-
-function highlightSelectedNode(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
-  clearNodeSelection();
-  const nodeId = nodeMesh.metadata?.id;
-  if (nodeId) {
-    selectedEditorNodeId.value = nodeId;
-    selectedEditorPropId.value = null;
-    createNodeRotationWidget(sc, nodeMesh, nodeId);
-  }
-}
-
-function highlightStartNode(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
-  clearNodeSelection();
-  nodeSelectionRing = BABYLON.MeshBuilder.CreateTorus('SelectedNodeTorus', { 
-    diameter: 0.85, 
-    thickness: 0.025, 
-    tessellation: 32 
-  }, sc);
-  nodeSelectionRing.parent = nodeMesh;
-  nodeSelectionRing.position.set(0, 0.01, 0);
-  const mat = new BABYLON.StandardMaterial('StartNodeMat', sc);
-  mat.emissiveColor = new BABYLON.Color3(0.96, 0.62, 0.04);
-  nodeSelectionRing.material = mat;
-  nodeSelectionRing.isPickable = false;
-}
-
-function clearNodeSelection() {
-  clearNodeRotationWidget();
-  if (nodeSelectionRing) {
-    nodeSelectionRing.dispose();
-    nodeSelectionRing = null;
-  }
-  selectedEditorNodeId.value = null;
-}
-
-function cancelEdgeConnection() {
-  edgeFirstNodeId.value = null;
-  hoveredNodeId.value = null;
-  disposeEdgePreviewMeshes(true);
-}
-
-// ----------------------------------------------------
-// Save & Reset Layout Handlers
-// ----------------------------------------------------
-async function handleSaveLayout() {
-  const ok = await saveLayout({
-    version: '2.0.0',
-    nodes: factoryLayout.nodes,
-    edges: factoryLayout.edges,
-    props: factoryLayout.props
-  });
-  if (ok) {
-    clearLayoutDirty();
-    currentAppMode.value = 'simulate';
-    emit('notify', '場域配置已成功儲存至後端，已自動返回【模擬模式】！', 'success');
-  } else {
-    emit('notify', '儲存場域失敗，請確認後端連線', 'warn');
-  }
-}
-
-async function handleResetLayout() {
-  await fetchLayout();
-  if (scene) rebuildLayoutInScene(scene);
-  clearLayoutDirty();
-  emit('notify', '已重新載入場域設定', 'info');
-}
-
-function resetToStandardTemplate() {
-  showResetModal.value = false;
-  factoryLayout.nodes = [
-    {
-      id: 'Node-01',
-      name: '充電站 Node-01',
-      x: 0.0,
-      y: 0.0,
-      z: 0.0,
-      function: 'Idle/Charge',
-      description: 'AGV 待命與自動充電站',
-      has_cargo: false
-    },
-    {
-      id: 'Node-02',
-      name: '通道點 Node-02',
-      x: 6.0,
-      y: 0.0,
-      z: 0.0,
-      function: 'Transit',
-      description: '中央導航通道點',
-      has_cargo: false
-    },
-    {
-      id: 'Node-03',
-      name: '貨物站 Node-03',
-      x: 12.0,
-      y: 0.0,
-      z: 0.0,
-      function: 'Cargo',
-      description: '智慧貨物取貨站點（有貨）',
-      has_cargo: true
-    },
-    {
-      id: 'Node-04',
-      name: '貨物站 Node-04',
-      x: 6.0,
-      y: 0.0,
-      z: 6.0,
-      function: 'Cargo',
-      description: '智慧貨物卸貨站點（無貨）',
-      has_cargo: false
-    }
-  ];
-
-  factoryLayout.edges = [
-    { id: 'Edge-01-02', startNodeId: 'Node-01', endNodeId: 'Node-02', bidirectional: true },
-    { id: 'Edge-02-03', startNodeId: 'Node-02', endNodeId: 'Node-03', bidirectional: true },
-    { id: 'Edge-03-04', startNodeId: 'Node-03', endNodeId: 'Node-04', bidirectional: true },
-    { id: 'Edge-02-04', startNodeId: 'Node-02', endNodeId: 'Node-04', bidirectional: true }
-  ];
-
-  factoryLayout.props = [];
-
-  if (scene) rebuildLayoutInScene(scene);
-  markLayoutDirty();
-  emit('notify', '已載入標準測試拓撲 (4 站點：充電站⚡ + 通道 + 取貨站[有貨] + 放貨站[無貨])，請點擊「儲存並模擬」！', 'success');
-}
-
-function clearCanvasEntirely() {
-  showResetModal.value = false;
-  factoryLayout.nodes = [];
-  factoryLayout.edges = [];
-  factoryLayout.props = [];
-  if (scene) rebuildLayoutInScene(scene);
-  markLayoutDirty();
-  emit('notify', '已清空地圖所有節點與路徑 (空白畫布)，您可以開始從零建立！', 'info');
-}
-
-async function handleCancelEdit() {
-  clearLayoutDirty();
-  await fetchLayout(true);
-  if (scene) rebuildLayoutInScene(scene);
-  currentAppMode.value = 'simulate';
-  currentEditorTool.value = 'select';
-  attachGizmoToTarget(null);
-  clearNodeSelection();
-  cancelEdgeConnection();
-  closeCargoContextMenu();
-  emit('notify', '已取消編輯，未儲存的場域變更已捨棄並返回模擬模式', 'info');
-}
+const selectionContext: SelectionContext = {
+  factoryLayout,
+  nodeMeshesMap,
+  propMeshesMap,
+  selectedEditorNodeId,
+  selectedEditorPropId,
+  selectionState,
+  getGizmoManager: () => gizmoManager,
+  setGizmoManager: (gm) => { gizmoManager = gm; },
+  updateEdgesForNode: (sc, nodeId) => updateEdgesForNode(sc, nodeId),
+  rebuildEdgesOnly: (sc) => rebuildEdgesOnly(sc),
+  createNodeRotationWidget: (sc, nodeMesh, nodeId) => createNodeRotationWidget(sc, nodeMesh, nodeId),
+  clearNodeRotationWidget: () => clearNodeRotationWidget(),
+  checkObjectClearanceCollision: (x, z, id, minDist) => checkObjectClearanceCollision(x, z, id, minDist),
+  markLayoutDirty: () => markLayoutDirty(),
+  notify: (msg, type) => emit('notify', msg, type || 'info')
+};
+
+const attachGizmoToTarget = (mesh: BABYLON.AbstractMesh | null) =>
+  attachGizmoToTargetMod(scene!, mesh, selectionContext);
+
+const highlightSelectedNode = (sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) =>
+  highlightSelectedNodeMod(sc, nodeMesh, selectionContext);
+
+const highlightStartNode = (sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) =>
+  highlightStartNodeMod(sc, nodeMesh, selectionContext);
+
+const clearNodeSelection = () =>
+  clearNodeSelectionMod(selectionContext);
+
+const setupGizmoManager = (sc: BABYLON.Scene) =>
+  setupGizmoManagerMod(sc, selectionContext);
+
+const edgeConnectionContext: EdgeConnectionContext = {
+  factoryLayout,
+  edgeMeshesMap,
+  edgeArrowMeshesMap,
+  createEdgeInScene: (sc, edge) => createEdgeInScene(sc, edge),
+  updateDynamicPathMaterials: () => updateDynamicPathMaterials(),
+  markLayoutDirty: () => markLayoutDirty(),
+  notify: (msg, type) => emit('notify', msg, type || 'info'),
+  cancelEdgeConnection: () => cancelEdgeConnection()
+};
+
+const disposeEdgePreviewMeshes = (includeStartRing: boolean = true) =>
+  disposeEdgePreviewMeshesMod(edgePreviewState, clearNodeSelection, includeStartRing);
+
+const cancelEdgeConnection = () =>
+  cancelEdgeConnectionMod(edgePreviewState, edgeFirstNodeId, hoveredNodeId, clearNodeSelection);
+
+const updateEdgeCreationPreview = (sc: BABYLON.Scene, startPoint: BABYLON.Vector3, endPoint: BABYLON.Vector3, isSnapped: boolean, targetId: string | null) =>
+  updateEdgeCreationPreviewMod(sc, startPoint, endPoint, isSnapped, targetId, edgeDirectionMode.value === 'bidirectional', edgePreviewState, clearNodeSelection);
+
+const completeEdgeConnection = (sc: BABYLON.Scene, startId: string, endId: string) =>
+  completeEdgeConnectionMod(sc, startId, endId, edgeDirectionMode.value === 'bidirectional', edgeConnectionContext);
+
+const layoutCommandsContext: LayoutCommandsContext = {
+  factoryLayout,
+  nodeMeshesMap,
+  nodeTextureMap,
+  stationPalletMap: stationPalletMap as unknown as Map<string, BABYLON.TransformNode>,
+  stationCargoMap,
+  edgeMeshesMap,
+  edgeArrowMeshesMap,
+  propMeshesMap,
+  getGizmoManager: () => gizmoManager,
+  rebuildEdgesOnly: (sc) => rebuildEdgesOnly(sc),
+  rebuildLayoutInScene: (sc) => rebuildLayoutInScene(sc),
+  clearNodeSelection: () => clearNodeSelection(),
+  cancelEdgeConnection: () => cancelEdgeConnection(),
+  closeCargoContextMenu: () => closeCargoContextMenu(),
+  attachGizmoToTarget: (mesh) => attachGizmoToTarget(mesh),
+  markLayoutDirty: () => markLayoutDirty(),
+  clearLayoutDirty: () => clearLayoutDirty(),
+  saveLayout: (layout) => saveLayout(layout),
+  fetchLayout: (force) => fetchLayout(force),
+  currentAppMode,
+  currentEditorTool,
+  showResetModal,
+  notify: (msg, type) => emit('notify', msg, type || 'info')
+};
+
+const deleteNodeById = (nodeId: string) =>
+  deleteNodeByIdMod(nodeId, scene!, layoutCommandsContext);
+
+const deleteEdgeById = (edgeId: string) =>
+  deleteEdgeByIdMod(edgeId, scene!, layoutCommandsContext);
+
+const deletePropById = (propId: string) =>
+  deletePropByIdMod(propId, layoutCommandsContext);
+
+const handleSaveLayout = () =>
+  handleSaveLayoutMod(layoutCommandsContext);
+
+const handleResetLayout = () =>
+  handleResetLayoutMod(scene!, layoutCommandsContext);
+
+const resetToStandardTemplate = () =>
+  resetToStandardTemplateMod(scene!, layoutCommandsContext);
+
+const clearCanvasEntirely = () =>
+  clearCanvasEntirelyMod(scene!, layoutCommandsContext);
+
+const handleCancelEdit = () =>
+  handleCancelEditMod(scene!, layoutCommandsContext);
+
+const pointerEventsContext: PointerEventsContext = {
+  currentAppMode,
+  currentEditorTool,
+  selectedVehicleId,
+  selectVehicle: (id) => selectVehicle(id),
+  dashboardActiveTab,
+  is3DQuickDispatchActive,
+  resetDispatchSteps: () => resetDispatchSteps(),
+  setCameraView: (view) => setCameraView(view),
+  vehicleVisuals,
+  updateQuickDispatchPreviewLine: (sc) => updateQuickDispatchPreviewLine(sc),
+  nodeMeshesMap,
+  resolvePickedNodeFromPointer: (sc, pick) => resolvePickedNodeFromPointer(sc, pick),
+  addOrSelectNodeFromMap: (nodeId) => addOrSelectNodeFromMap(nodeId),
+  factoryLayout,
+  fleetVehicles,
+  cargoContextMenu,
+  toggleStationCargo: (node, hasCargo) => toggleStationCargo(node, hasCargo),
+  edgeFirstNodeId,
+  hoveredNodeId,
+  completeEdgeConnection: (sc, startId, endId) => completeEdgeConnection(sc, startId, endId),
+  cancelEdgeConnection: () => cancelEdgeConnection(),
+  disposeEdgePreviewMeshes: (includeStartRing) => disposeEdgePreviewMeshes(includeStartRing),
+  updateEdgeCreationPreview: (sc, startPoint, endPoint, isSnapped, targetId) => updateEdgeCreationPreview(sc, startPoint, endPoint, isSnapped, targetId),
+  edgePreviewState,
+  newNodeFunction,
+  updateGhostPadVisual: (sc, func) => updateGhostPadVisual(sc, func),
+  hideGhostPlacementPad: () => hideGhostPlacementPad(),
+  ghostPadState,
+  computeSmartSnap: (x, z) => computeSmartSnap(x, z),
+  checkObjectClearanceCollision: (x, z, excludeId, minDist) => checkObjectClearanceCollision(x, z, excludeId, minDist),
+  setNodeHeading: (id, deg) => setNodeHeading(id, deg),
+  rotateNode: (id, deg) => rotateNode(id, deg),
+  selectedEditorNodeId,
+  selectedEditorPropId,
+  attachGizmoToTarget: (mesh) => attachGizmoToTarget(mesh),
+  highlightSelectedNode: (sc, mesh) => highlightSelectedNode(sc, mesh),
+  highlightStartNode: (sc, mesh) => highlightStartNode(sc, mesh),
+  clearNodeSelection: () => clearNodeSelection(),
+  createNodeInScene: (sc, node) => createNodeInScene(sc, node),
+  clearAlignmentGuideLines: () => clearAlignmentGuideLines(),
+  markLayoutDirty: () => markLayoutDirty(),
+  deleteNodeById: (id) => deleteNodeById(id),
+  deleteEdgeById: (id) => deleteEdgeById(id),
+  deletePropById: (id) => deletePropById(id),
+  get camera() { return camera; },
+  notify: (msg, type) => emit('notify', msg, type || 'info')
+};
+
+const closeCargoContextMenu = () =>
+  closeCargoContextMenuMod(cargoContextMenu);
+
+const setNodeCargoStatus = (node: LayoutNode, hasCargo: boolean) =>
+  setNodeCargoStatusMod(node, hasCargo, pointerEventsContext);
+
+const setupInteractivePointerEvents = (sc: BABYLON.Scene) =>
+  setupInteractivePointerEventsMod(sc, pointerEventsContext);
 
 // ----------------------------------------------------
 // Item 1: Multi-Step Vehicle Mission Dispatch Helpers
