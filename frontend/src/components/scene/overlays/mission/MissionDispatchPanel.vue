@@ -183,4 +183,4 @@ defineEmits<{
 }>();
 </script>
 
-<style scoped src="./missionPanel.css"></style>
+<style src="./missionPanel.css"></style>

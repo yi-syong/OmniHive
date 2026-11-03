@@ -21,6 +21,6 @@ import { dashboardActiveTab } from '../services/websocket';
 defineEmits<{ (e: 'close'): void }>();
 </script>
 
-<style scoped>
+<style>
 @import './dashboard/dashboard.css';
 </style>

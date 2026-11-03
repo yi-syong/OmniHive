@@ -164,6 +164,6 @@ onMounted(() => {
 });
 </script>
 
-<style scoped>
+<style>
 @import './components/layout/layout.css';
 </style>

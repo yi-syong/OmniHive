@@ -2,7 +2,7 @@
   <div :class="['camera-toolbar', { 'in-edit-mode': inEditMode }]">
     <button 
       :class="['cam-btn', { active: currentView === 'iso' }]" 
-      @click="$emit('change-view', 'iso')"
+      @click="$emit('set-view', 'iso'); $emit('change-view', 'iso')"
       title="全廠鳥瞰等角視角"
     >
       <Box :size="14" />
@@ -10,7 +10,7 @@
     </button>
     <button 
       :class="['cam-btn', { active: currentView === 'top' }]" 
-      @click="$emit('change-view', 'top')"
+      @click="$emit('set-view', 'top'); $emit('change-view', 'top')"
       title="正上方全廠平面總覽"
     >
       <Compass :size="14" />
@@ -28,6 +28,7 @@ defineProps<{
 }>();
 
 defineEmits<{
+  (e: 'set-view', view: 'iso' | 'top' | 'follow'): void;
   (e: 'change-view', view: 'iso' | 'top'): void;
 }>();
 </script>

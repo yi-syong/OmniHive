@@ -5,6 +5,7 @@
     <!-- Top Left Camera Perspective Switcher -->
     <CameraToolbar 
       :current-view="currentView" 
+      :in-edit-mode="currentAppMode === 'edit'"
       @set-view="setCameraView" 
     />
 
