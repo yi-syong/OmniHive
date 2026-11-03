@@ -60,7 +60,7 @@ export interface SceneContext {
   edgeArrowMeshesMap: Map<string, BABYLON.AbstractMesh[]>;
   propMeshesMap: Map<string, BABYLON.AbstractMesh>;
   stationPalletMap: Map<string, BABYLON.TransformNode>;
-  stationCargoMap: Map<string, BABYLON.Mesh>;
+  stationCargoMap: Map<string, BABYLON.AbstractMesh>;
   nodeTextureMap: Map<string, { texture: BABYLON.DynamicTexture; plane: BABYLON.Mesh }>;
 
   // Vehicles

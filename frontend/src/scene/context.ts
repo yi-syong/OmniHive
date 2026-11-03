@@ -30,7 +30,7 @@ export function createSceneContext(opts: SceneContextOptions): SceneContext {
     edgeArrowMeshesMap: new Map<string, BABYLON.AbstractMesh[]>(),
     propMeshesMap: new Map<string, BABYLON.AbstractMesh>(),
     stationPalletMap: new Map<string, BABYLON.TransformNode>(),
-    stationCargoMap: new Map<string, BABYLON.Mesh>(),
+    stationCargoMap: new Map<string, BABYLON.AbstractMesh>(),
     nodeTextureMap: new Map<string, { texture: BABYLON.DynamicTexture; plane: BABYLON.Mesh }>(),
 
     vehicleVisuals: new Map<string, VehicleVisual>(),
