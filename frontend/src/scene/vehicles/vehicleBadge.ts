@@ -133,10 +133,15 @@ export function updateVehicleOverheadBadge(
   const isCharging = !!vData.battery?.charging || vData.task_info?.action === 'charge' || vData.task_info?.display_message?.includes('充電');
   if (isCharging) {
     visual.lastBadgeSig = ''; // Force continuous animation update
+    const now = performance.now();
+    if (visual.lastBadgeUpdate && now - visual.lastBadgeUpdate < 50) {
+      return;
+    }
+    visual.lastBadgeUpdate = now;
     const tex = visual.overheadBadgeTexture;
     if (tex) {
       const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
-      drawChargingBatteryBadge(ctx, performance.now());
+      drawChargingBatteryBadge(ctx, now);
       tex.update();
     }
     return;
@@ -270,14 +275,30 @@ export function updateVehicleTrajectory(
   }
 
   // Build point sequence: Live vehicle position -> Remaining unpassed nodes
-  const pts: BABYLON.Vector3[] = [];
-  pts.push(new BABYLON.Vector3(visual.currentPos.x, 0.05, visual.currentPos.z));
+  if (!visual.trajectoryPts) {
+    visual.trajectoryPts = [];
+  }
+  const pts = visual.trajectoryPts;
+  if (pts.length === 0) {
+    pts.push(new BABYLON.Vector3(visual.currentPos.x, 0.05, visual.currentPos.z));
+  } else {
+    pts[0].set(visual.currentPos.x, 0.05, visual.currentPos.z);
+  }
 
+  let idx = 1;
   for (const nId of nodeStates) {
     const node = nodes.find(n => n.id === nId);
     if (node) {
-      pts.push(new BABYLON.Vector3(node.x, 0.05, node.z));
+      if (idx < pts.length) {
+        pts[idx].set(node.x, 0.05, node.z);
+      } else {
+        pts.push(new BABYLON.Vector3(node.x, 0.05, node.z));
+      }
+      idx++;
     }
+  }
+  if (pts.length > idx) {
+    pts.length = idx;
   }
 
   if (pts.length < 2) {
@@ -289,11 +310,17 @@ export function updateVehicleTrajectory(
   }
 
   if (visual.activeTrajectoryMesh && !visual.activeTrajectoryMesh.isDisposed()) {
-    visual.activeTrajectoryMesh = BABYLON.MeshBuilder.CreateLines(`Trajectory_${visual.id}`, {
-      points: pts,
-      instance: visual.activeTrajectoryMesh
-    }, sc);
-  } else {
+    try {
+      visual.activeTrajectoryMesh = BABYLON.MeshBuilder.CreateLines(`Trajectory_${visual.id}`, {
+        points: pts,
+        instance: visual.activeTrajectoryMesh
+      }, sc);
+    } catch {
+      visual.activeTrajectoryMesh.dispose();
+      visual.activeTrajectoryMesh = null;
+    }
+  }
+  if (!visual.activeTrajectoryMesh || visual.activeTrajectoryMesh.isDisposed()) {
     const line = BABYLON.MeshBuilder.CreateLines(`Trajectory_${visual.id}`, {
       points: pts,
       updatable: true

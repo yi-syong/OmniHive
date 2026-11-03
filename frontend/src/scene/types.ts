@@ -12,6 +12,8 @@ export interface VehicleVisual {
   overheadBadgeMesh: BABYLON.Mesh | null;
   overheadBadgeTexture: BABYLON.DynamicTexture | null;
   lastBadgeSig: string;
+  lastBadgeUpdate?: number;
+  trajectoryPts?: BABYLON.Vector3[];
   activeTrajectoryMesh: BABYLON.LinesMesh | null;
   targetPos: BABYLON.Vector3;
   currentPos: BABYLON.Vector3;
@@ -61,7 +63,7 @@ export interface SceneContext {
   propMeshesMap: Map<string, BABYLON.AbstractMesh>;
   stationPalletMap: Map<string, BABYLON.TransformNode>;
   stationCargoMap: Map<string, BABYLON.AbstractMesh>;
-  nodeTextureMap: Map<string, { texture: BABYLON.DynamicTexture; plane: BABYLON.Mesh }>;
+  nodeTextureMap: Map<string, { texture: BABYLON.DynamicTexture; plane: BABYLON.Mesh; lastSig?: string }>;
 
   // Vehicles
   vehicleVisuals: Map<string, VehicleVisual>;

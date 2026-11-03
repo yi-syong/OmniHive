@@ -13,7 +13,7 @@ export interface NodeMeshContext {
   nodeMeshesMap: Map<string, BABYLON.Mesh>;
   stationPalletMap: Map<string, BABYLON.TransformNode>;
   stationCargoMap: Map<string, BABYLON.AbstractMesh>;
-  nodeTextureMap: Map<string, { texture: BABYLON.DynamicTexture; plane: BABYLON.Mesh }>;
+  nodeTextureMap: Map<string, { texture: BABYLON.DynamicTexture; plane: BABYLON.Mesh; lastSig?: string }>;
   fleetVehicles?: Record<string, any>;
   agvState?: any;
   is3DQuickDispatchActive?: Ref<boolean>;
@@ -101,7 +101,6 @@ export function updateNodeTexture(nodeId: string, ctx: NodeMeshContext) {
   if (!entry) return;
   const node = ctx.factoryLayout.nodes.find(n => n.id === nodeId);
   if (!node) return;
-  const context2d = entry.texture.getContext() as unknown as CanvasRenderingContext2D;
   const status = getNodeStatus(nodeId, ctx.factoryLayout, ctx.fleetVehicles, ctx.agvState);
   const badge = getNodeBadge(
     nodeId,
@@ -109,6 +108,11 @@ export function updateNodeTexture(nodeId: string, ctx: NodeMeshContext) {
     ctx.currentAgvStartNode?.value,
     ctx.quickDispatchSteps?.value
   );
+  const sig = `${node.function}_${node.name || ''}_${node.has_cargo ? 1 : 0}_${status}_${badge || 'none'}`;
+  if (entry.lastSig === sig) return;
+  entry.lastSig = sig;
+
+  const context2d = entry.texture.getContext() as unknown as CanvasRenderingContext2D;
   drawStationIconTexture(context2d, 512, 512, node, status, badge);
   entry.texture.update();
 }
@@ -250,7 +254,8 @@ export function createNodeInScene(
   iconMat.disableLighting = true;
   iconPlane.material = iconMat;
 
-  ctx.nodeTextureMap.set(node.id, { texture: nodeTex, plane: iconPlane });
+  const initSig = `${node.function}_${node.name || ''}_${node.has_cargo ? 1 : 0}_${status}_${badge || 'none'}`;
+  ctx.nodeTextureMap.set(node.id, { texture: nodeTex, plane: iconPlane, lastSig: initSig });
 
   // If Cargo station: Plastic pallet + Cargo box ONLY when node.has_cargo is true
   if (isCargoStation) {

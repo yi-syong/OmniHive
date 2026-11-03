@@ -22,7 +22,7 @@ export function createSceneState() {
   const propMeshesMap = new Map<string, BABYLON.AbstractMesh>();
   const stationPalletMap = new Map<string, BABYLON.AbstractMesh>();
   const stationCargoMap = new Map<string, BABYLON.AbstractMesh>();
-  const nodeTextureMap = new Map<string, { texture: BABYLON.DynamicTexture, plane: BABYLON.Mesh }>();
+  const nodeTextureMap = new Map<string, { texture: BABYLON.DynamicTexture, plane: BABYLON.Mesh; lastSig?: string }>();
 
   const currentSelectedVehicleState = computed(() => fleetVehicles[selectedVehicleId.value] || agvState);
   const currentAgvStartNode = computed(() => currentSelectedVehicleState.value.task_info?.current_node || 'Node-01');

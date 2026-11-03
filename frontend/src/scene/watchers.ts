@@ -205,6 +205,7 @@ export function setupSceneWatchers(ctx: SceneWatchersContext) {
   );
 
   // 6. Watch all fleet edge & node states
+  let nodeTexRafId: number | null = null;
   watch(
     () => [
       ctx.agvState.edge_states, 
@@ -223,7 +224,12 @@ export function setupSceneWatchers(ctx: SceneWatchersContext) {
     ],
     () => {
       ctx.updateDynamicPathMaterials();
-      ctx.updateAllNodeTextures();
+      if (nodeTexRafId === null) {
+        nodeTexRafId = requestAnimationFrame(() => {
+          nodeTexRafId = null;
+          ctx.updateAllNodeTextures();
+        });
+      }
     },
     { deep: true }
   );

@@ -31,7 +31,12 @@ export function initBabylonEngine(canvas: HTMLCanvasElement): {
   hemiLight: BABYLON.HemisphericLight;
   dirLight: BABYLON.DirectionalLight;
 } {
-  const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+  const engine = new BABYLON.Engine(canvas, true, {
+    preserveDrawingBuffer: false,
+    stencil: true,
+    powerPreference: 'high-performance'
+  });
+  engine.enableOfflineSupport = false;
   const scene = new BABYLON.Scene(engine);
   scene.clearColor = new BABYLON.Color4(0.04, 0.06, 0.11, 1.0); // Slate OLED dark
 

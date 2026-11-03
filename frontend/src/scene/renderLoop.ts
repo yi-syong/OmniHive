@@ -29,7 +29,7 @@ export function startRenderLoop(
     const selVehId = ctx.selectedVehicleId.value;
 
     for (const v of ctx.vehicleVisuals.values()) {
-      v.currentPos = BABYLON.Vector3.Lerp(v.currentPos, v.targetPos, 0.18);
+      BABYLON.Vector3.LerpToRef(v.currentPos, v.targetPos, 0.18, v.currentPos);
 
       let diff = v.targetTheta - v.currentTheta;
       while (diff < -Math.PI) diff += 2 * Math.PI;
@@ -42,25 +42,47 @@ export function startRenderLoop(
       if (v.activeTrajectoryMesh && !v.activeTrajectoryMesh.isDisposed()) {
         const vData = ctx.fleetVehicles[v.id] || (v.id === 'AGV-001' ? ctx.agvState : null);
         if (vData && vData.node_states && vData.node_states.length > 0 && vData.task_info?.status === 'DRIVING') {
-          const pts: BABYLON.Vector3[] = [];
-          pts.push(new BABYLON.Vector3(v.currentPos.x, 0.05, v.currentPos.z));
+          if (!v.trajectoryPts) {
+            v.trajectoryPts = [];
+          }
+          const pts = v.trajectoryPts;
+          if (pts.length === 0) {
+            pts.push(new BABYLON.Vector3(v.currentPos.x, 0.05, v.currentPos.z));
+          } else {
+            pts[0].set(v.currentPos.x, 0.05, v.currentPos.z);
+          }
+          let idx = 1;
           for (const nId of vData.node_states) {
             const node = ctx.factoryLayout.nodes.find(n => n.id === nId);
             if (node) {
-              pts.push(new BABYLON.Vector3(node.x, 0.05, node.z));
+              if (idx < pts.length) {
+                pts[idx].set(node.x, 0.05, node.z);
+              } else {
+                pts.push(new BABYLON.Vector3(node.x, 0.05, node.z));
+              }
+              idx++;
             }
           }
+          if (pts.length > idx) {
+            pts.length = idx;
+          }
+
           if (pts.length >= 2) {
-            v.activeTrajectoryMesh = BABYLON.MeshBuilder.CreateLines(`Trajectory_${v.id}`, {
-              points: pts,
-              instance: v.activeTrajectoryMesh
-            }, scene);
+            try {
+              v.activeTrajectoryMesh = BABYLON.MeshBuilder.CreateLines(`Trajectory_${v.id}`, {
+                points: pts,
+                instance: v.activeTrajectoryMesh
+              }, scene);
+            } catch {
+              v.activeTrajectoryMesh.dispose();
+              v.activeTrajectoryMesh = null;
+            }
           }
         }
       }
 
       if (ctx.currentView.value === 'follow' && camera && selVehId === v.id) {
-        camera.target = BABYLON.Vector3.Lerp(camera.target, v.root.position, 0.1);
+        BABYLON.Vector3.LerpToRef(camera.target, v.root.position, 0.1, camera.target);
       }
 
       const vData = ctx.fleetVehicles[v.id] || (v.id === 'AGV-001' ? ctx.agvState : null);
