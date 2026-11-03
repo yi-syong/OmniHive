@@ -2,10 +2,25 @@ import * as BABYLON from '@babylonjs/core';
 import type { Ref } from 'vue';
 import type { AppMode, EditorTool, FactoryLayout, LayoutNode } from '../../types';
 import type { CollisionCheckResult, SmartSnapResult, VehicleVisual } from '../types';
-import { isCargoNode, getNodeFunctionLabel, getNodeTypeDefaultDesc } from '../layout/nodeUtils';
+import { getNodeFunctionLabel, getNodeTypeDefaultDesc } from '../layout/nodeUtils';
 import { MIN_CLEARANCE_DIST } from './selection';
 import { positionGhostPlacementPad, type GhostPadState } from './ghostPad';
 import type { EdgePreviewState } from './edgePreview';
+import {
+  triggerNodeTargetRipple,
+  openCargoContextMenu,
+  closeCargoContextMenu,
+  setNodeCargoStatus,
+  handleRightClick
+} from './cargoMenu';
+
+export {
+  triggerNodeTargetRipple,
+  openCargoContextMenu,
+  closeCargoContextMenu,
+  setNodeCargoStatus,
+  handleRightClick
+};
 
 export interface PointerEventsContext {
   currentAppMode: Ref<AppMode>;
@@ -54,103 +69,6 @@ export interface PointerEventsContext {
   deletePropById: (id: string) => void;
   camera: BABYLON.ArcRotateCamera | null;
   notify: (msg: string, type?: 'info' | 'warn' | 'success') => void;
-}
-
-export function triggerNodeTargetRipple(sc: BABYLON.Scene, nodeMesh: BABYLON.AbstractMesh) {
-  const ripple = BABYLON.MeshBuilder.CreateTorus('Ripple', { diameter: 1.6, thickness: 0.05, tessellation: 32 }, sc);
-  ripple.position.copyFrom(nodeMesh.position);
-  ripple.position.y += 0.02;
-
-  const mat = new BABYLON.StandardMaterial('RippleMat', sc);
-  mat.emissiveColor = new BABYLON.Color3(0.2, 0.9, 1.0);
-  mat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-  ripple.material = mat;
-
-  BABYLON.Animation.CreateAndStartAnimation(
-    'rippleScale',
-    ripple,
-    'scaling',
-    30,
-    18,
-    new BABYLON.Vector3(1, 1, 1),
-    new BABYLON.Vector3(1.5, 1.5, 1.5),
-    BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-  );
-
-  setTimeout(() => {
-    ripple.dispose();
-  }, 600);
-}
-
-export function openCargoContextMenu(
-  evt: MouseEvent,
-  node: LayoutNode,
-  cargoContextMenu: Ref<{ visible: boolean; x: number; y: number; node: LayoutNode | null }>
-) {
-  const menuWidth = 180;
-  const menuHeight = 110;
-  let x = evt.clientX;
-  let y = evt.clientY;
-
-  if (x + menuWidth > window.innerWidth) {
-    x = window.innerWidth - menuWidth - 12;
-  }
-  if (y + menuHeight > window.innerHeight) {
-    y = window.innerHeight - menuHeight - 12;
-  }
-
-  cargoContextMenu.value = {
-    visible: true,
-    x,
-    y,
-    node
-  };
-}
-
-export function closeCargoContextMenu(
-  cargoContextMenu: Ref<{ visible: boolean; x: number; y: number; node: LayoutNode | null }>
-) {
-  cargoContextMenu.value.visible = false;
-  cargoContextMenu.value.node = null;
-}
-
-export async function setNodeCargoStatus(
-  node: LayoutNode,
-  hasCargo: boolean,
-  ctx: PointerEventsContext
-) {
-  await ctx.toggleStationCargo(node, hasCargo);
-  closeCargoContextMenu(ctx.cargoContextMenu);
-}
-
-export function handleRightClick(
-  sc: BABYLON.Scene,
-  pointerInfo: BABYLON.PointerInfo,
-  ctx: PointerEventsContext
-) {
-  const pick = pointerInfo.pickInfo;
-  const evt = pointerInfo.event as MouseEvent;
-
-  if (!pick || !pick.hit || !pick.pickedMesh) {
-    closeCargoContextMenu(ctx.cargoContextMenu);
-    return;
-  }
-
-  const pickedNodeId = ctx.resolvePickedNodeFromPointer(sc, pick);
-  if (pickedNodeId) {
-    const node = ctx.factoryLayout.nodes.find(n => n.id === pickedNodeId);
-    if (node) {
-      if (isCargoNode(node.id, ctx.factoryLayout.nodes)) {
-        openCargoContextMenu(evt, node, ctx.cargoContextMenu);
-        return;
-      } else {
-        closeCargoContextMenu(ctx.cargoContextMenu);
-        ctx.notify(`站點 ${node.id} (${getNodeFunctionLabel(node.function)}) 非貨物站，無法編輯貨物狀態`, 'info');
-        return;
-      }
-    }
-  }
-  closeCargoContextMenu(ctx.cargoContextMenu);
 }
 
 export function handlePointerUpInEditMode(
@@ -472,7 +390,14 @@ export function setupInteractivePointerEvents(
     if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
       const evt = pointerInfo.event as MouseEvent;
       if (evt && evt.button === 2) {
-        handleRightClick(sc, pointerInfo, ctx);
+        handleRightClick(
+          sc,
+          pointerInfo,
+          ctx.factoryLayout.nodes,
+          ctx.resolvePickedNodeFromPointer,
+          ctx.cargoContextMenu,
+          ctx.notify
+        );
         return;
       }
       if (ctx.cargoContextMenu.value.visible) {
